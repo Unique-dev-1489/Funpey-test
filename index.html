@@ -205,6 +205,56 @@
             animation: fadeIn 0.3s ease-in;
             display: none;
         }
+        /* Rule selection styles */
+        .rule-option {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .rule-option:hover {
+            border-color: #d1d5db;
+        }
+        .rule-option.selected {
+            border-color: #8b5cf6;
+            background-color: #f5f3ff;
+        }
+        .rule-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .rule-badge-1 {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        .rule-badge-2 {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .status-active {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+        .status-completed {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+        .status-expired {
+            background-color: #f3f4f6;
+            color: #6b7280;
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -257,6 +307,9 @@
         // Transaction to delete
         let transactionToDelete = null;
 
+        // Rule option selected for reward creation
+        let selectedRuleOption = 1;
+
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is logged in
@@ -292,9 +345,44 @@
                     }
                 });
             }
+
+            // Initialize rule selection
+            initializeRuleSelection();
         });
 
-        // --- REWARD FEATURE FUNCTIONS ---
+        // Rule selection functions
+        function initializeRuleSelection() {
+            // Set default selection
+            selectRuleOption(1);
+            
+            // Add click handlers to rule options
+            document.querySelectorAll('.rule-option').forEach(option => {
+                option.addEventListener('click', function() {
+                    const ruleId = parseInt(this.dataset.ruleId);
+                    selectRuleOption(ruleId);
+                });
+            });
+        }
+
+        function selectRuleOption(ruleId) {
+            selectedRuleOption = ruleId;
+            
+            // Update UI
+            document.querySelectorAll('.rule-option').forEach(option => {
+                option.classList.remove('selected');
+                if (parseInt(option.dataset.ruleId) === ruleId) {
+                    option.classList.add('selected');
+                }
+            });
+            
+            // Update hidden input
+            const ruleInput = document.getElementById('selectedRule');
+            if (ruleInput) {
+                ruleInput.value = ruleId;
+            }
+        }
+
+        // --- REWARD SYSTEM FUNCTIONS ---
 
         function checkForRewardLink() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -306,24 +394,22 @@
                     alert('Please sign in to claim this reward.');
                     return;
                 }
-                // User is logged in, fetch reward data
+                
+                // Check if reward exists
                 database.ref('rewards/' + rewardId).once('value').then(snapshot => {
                     if (snapshot.exists()) {
                         const reward = snapshot.val();
-                        if (reward.status === 'completed') {
-                            alert('This reward has already been claimed.');
-                            window.history.replaceState({}, document.title, window.location.pathname);
-                            showScreen('home');
-                            return;
-                        }
-                        if (reward.userId === currentUser.uid) {
-                            alert('You cannot claim your own reward!');
-                            window.history.replaceState({}, document.title, window.location.pathname);
-                            showScreen('home');
-                            return;
-                        }
                         currentRewardData = reward;
-                        displayClaimRewardScreen();
+                        
+                        // Validate reward based on rules
+                        validateRewardForClaim(reward).then(isValid => {
+                            if (isValid) {
+                                displayClaimRewardScreen();
+                            } else {
+                                window.history.replaceState({}, document.title, window.location.pathname);
+                                showScreen('home');
+                            }
+                        });
                     } else {
                         alert('Invalid or expired reward link.');
                         window.history.replaceState({}, document.title, window.location.pathname);
@@ -333,19 +419,75 @@
             }
         }
 
+        function validateRewardForClaim(reward) {
+            return new Promise((resolve) => {
+                // Check if user is trying to claim their own reward
+                if (reward.userId === currentUser.uid) {
+                    alert('You cannot claim your own reward!');
+                    resolve(false);
+                    return;
+                }
+                
+                // Check based on rule option
+                if (reward.ruleOption === 1) {
+                    // Rule 1: My Rules
+                    // No additional checks needed beyond not self-claiming
+                    resolve(true);
+                } else if (reward.ruleOption === 2) {
+                    // Rule 2: Strict Rules
+                    // Check if already completed
+                    if (reward.status === 'completed') {
+                        alert('This reward has already been claimed.');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    // Check if expired (24 hours)
+                    const now = Date.now();
+                    const createdTime = reward.createdAt;
+                    const twentyFourHours = 24 * 60 * 60 * 1000;
+                    
+                    if (now - createdTime > twentyFourHours) {
+                        alert('This reward link has expired (24 hours limit).');
+                        resolve(false);
+                        return;
+                    }
+                    
+                    resolve(true);
+                } else {
+                    // Default to Rule 1 behavior
+                    resolve(true);
+                }
+            });
+        }
+
         function displayClaimRewardScreen() {
+            if (!currentRewardData) return;
+            
             document.getElementById('rewardUserName').textContent = currentRewardData.userName;
             document.getElementById('rewardUserAccount').textContent = currentRewardData.userAccount;
             document.getElementById('rewardPaymentAmount').textContent = '₹' + currentRewardData.amount.toFixed(2);
+            document.getElementById('rewardDescriptionText').textContent = currentRewardData.description || 'Reward Payment';
+            
+            // Show rule information
+            const ruleInfo = currentRewardData.ruleOption === 1 ? 
+                'Rule 1 (Unlimited Claims)' : 'Rule 2 (One-time Claim, 24h Expiry)';
+            document.getElementById('rewardRuleInfo').textContent = ruleInfo;
+            
             showScreen('claimReward');
         }
 
         function generateRewardLink() {
             const amount = parseFloat(document.getElementById('rewardAmount').value);
             const description = document.getElementById('rewardDescription').value;
-
+            
             if (!amount || amount <= 0) {
                 alert('Please enter a valid amount.');
+                return;
+            }
+            
+            if (!selectedRuleOption) {
+                alert('Please select a rule option.');
                 return;
             }
 
@@ -362,12 +504,22 @@
                     userAccount: userData.accountNumber,
                     amount: amount,
                     description: description || 'Reward Payment',
-                    status: 'pending',
-                    createdAt: firebase.database.ServerValue.TIMESTAMP
+                    ruleOption: selectedRuleOption,
+                    status: 'active',
+                    createdAt: Date.now(),
+                    expiresAt: selectedRuleOption === 2 ? Date.now() + (24 * 60 * 60 * 1000) : null
                 };
+                
                 database.ref('rewards/' + rewardId).set(rewardData).then(() => {
                     document.getElementById('rewardLink').value = rewardLink;
                     document.getElementById('generatedRewardLinkContainer').classList.remove('hidden');
+                    
+                    // Reset form
+                    document.getElementById('rewardAmount').value = '';
+                    document.getElementById('rewardDescription').value = '';
+                    
+                    // Show success message
+                    alert('Reward link generated successfully!');
                 });
             });
         }
@@ -424,10 +576,14 @@
                     updates[`transactions/${payerId}/${Date.now()}`] = debitTransaction;
                     updates[`transactions/${recipientId}/${Date.now()}`] = creditTransaction;
 
-                    // Update reward status
-                    updates[`rewards/${currentRewardData.rewardId}/status`] = 'completed';
-                    updates[`rewards/${currentRewardData.rewardId}/completedBy`] = payerId;
-                    updates[`rewards/${currentRewardData.rewardId}/completedAt`] = firebase.database.ServerValue.TIMESTAMP;
+                    // Update reward based on rule option
+                    if (currentRewardData.ruleOption === 2) {
+                        // Rule 2: Mark as completed
+                        updates[`rewards/${currentRewardData.rewardId}/status`] = 'completed';
+                        updates[`rewards/${currentRewardData.rewardId}/completedBy`] = payerId;
+                        updates[`rewards/${currentRewardData.rewardId}/completedAt`] = Date.now();
+                    }
+                    // Rule 1 rewards stay active for unlimited claims
 
                     // Send notification
                     updates[`notifications/${recipientId}/${Date.now()}`] = {
@@ -449,7 +605,7 @@
         function showRewardPaymentSuccessScreen(transactionId) {
             document.getElementById('rewardPaidTo').textContent = currentRewardData.userName;
             document.getElementById('rewardPaidAmount').textContent = '₹' + currentRewardData.amount.toFixed(2);
-            document.getElementById('rewardPaidDescription').textContent = currentRewardData.description;
+            document.getElementById('rewardPaidDescription').textContent = currentRewardData.description || 'Reward Payment';
             document.getElementById('rewardTransactionId').textContent = transactionId;
             document.getElementById('rewardPaymentDate').textContent = formatDate(Date.now());
             showScreen('rewardPaymentSuccess');
@@ -469,236 +625,132 @@
             showScreen('home');
         }
 
-        function copyToClipboard(elementId) {
-            const textToCopy = document.getElementById(elementId).value;
-            copyTextToClipboard(textToCopy);
-        }
-        
-        function copyTextToClipboard(text) {
-            if (!navigator.clipboard) {
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.position = "fixed";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    alert('Copied to clipboard!');
-                } catch (err) {
-                    alert('Oops, unable to copy');
-                }
-                document.body.removeChild(textArea);
-                return;
-            }
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Copied to clipboard!');
-            }, (err) => {
-                console.error('Could not copy text: ', err);
-                alert('Oops, unable to copy');
-            });
+        // --- REWARD LINK CHECKER FUNCTIONS ---
+
+        function showRewardLinkChecker() {
+            showScreen('rewardLinkChecker');
+            loadRewardLinks();
         }
 
-        // --- TRANSACTION DETAILS FUNCTIONS ---
-
-        function showTransactionPopup(transaction) {
-            clickedTransaction = transaction;
+        function loadRewardLinks() {
+            if (!currentUser) return;
             
-            // Set popup data
-            const isCredit = transaction.type === 'credit' || transaction.type === 'request';
-            document.getElementById('popupIcon').className = isCredit ? 
-                'w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4' : 
-                'w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4';
+            const rewardsList = document.getElementById('rewardsList');
+            rewardsList.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500 text-xl"></i><p class="text-sm text-gray-500 mt-2">Loading rewards...</p></div>';
             
-            document.getElementById('popupIcon').innerHTML = isCredit ? 
-                '<i class="fas fa-arrow-down text-green-500 text-3xl"></i>' : 
-                '<i class="fas fa-arrow-up text-blue-500 text-3xl"></i>';
-            
-            document.getElementById('popupType').textContent = isCredit ? 'Money Received' : 'Money Sent';
-            document.getElementById('popupFrom').textContent = transaction.from;
-            document.getElementById('popupTo').textContent = transaction.to;
-            document.getElementById('popupAmount').textContent = '₹' + transaction.amount.toFixed(2);
-            document.getElementById('popupAmount').className = isCredit ? 
-                'font-medium big-amount text-green-500' : 
-                'font-medium big-amount text-blue-500';
-            document.getElementById('popupNote').textContent = transaction.note || 'No note provided';
-            document.getElementById('popupDate').textContent = formatDate(transaction.timestamp);
-            document.getElementById('popupStatus').textContent = 'Successful';
-            document.getElementById('popupStatus').className = 'font-medium text-green-500 text-right';
-            document.getElementById('popupTransactionId').textContent = transaction.transactionId || 'TXN' + transaction.timestamp;
-            
-            showScreen('transactionPopup');
-        }
-
-        function sharePopupTransaction() {
-            if (!clickedTransaction) return;
-            
-            const isCredit = clickedTransaction.type === 'credit' || clickedTransaction.type === 'request';
-            const transactionType = isCredit ? 'Received' : 'Sent';
-            
-            const shareText = `${transactionType} via Fun Pay!\n\n${isCredit ? 'From:' : 'To:'} ${isCredit ? clickedTransaction.from : clickedTransaction.to}\nAmount: ₹${clickedTransaction.amount.toFixed(2)}\nNote: ${clickedTransaction.note || 'Payment'}\nDate: ${formatDate(clickedTransaction.timestamp)}\nTransaction ID: ${clickedTransaction.transactionId || 'TXN' + clickedTransaction.timestamp}\nStatus: Successful\n\nThis is an educational transaction from Fun Pay - Educational Payment App`;
-            
-            if (navigator.share) {
-                navigator.share({
-                    title: `Fun Pay - ${transactionType}`,
-                    text: shareText
-                }).catch(err => console.log('Error sharing:', err));
-            } else {
-                navigator.clipboard.writeText(shareText).then(() => {
-                    alert('Transaction details copied to clipboard!');
-                }).catch(err => {
-                    console.error('Could not copy text: ', err);
-                    alert('Unable to share. Please try again.');
-                });
-            }
-        }
-
-        function showPopupAsPaymentSuccess() {
-            if (!clickedTransaction) return;
-            
-            // Set lastTransaction to the clicked one
-            lastTransaction = clickedTransaction;
-            
-            // Update success screen
-            document.getElementById('successRecipient').textContent = lastTransaction.to;
-            document.getElementById('successAmount').textContent = '₹' + lastTransaction.amount.toFixed(2);
-            document.getElementById('successNote').textContent = lastTransaction.note || 'Payment';
-            document.getElementById('successDate').textContent = formatDate(lastTransaction.timestamp);
-            document.getElementById('successTransactionId').textContent = lastTransaction.transactionId || 'TXN' + lastTransaction.timestamp;
-            
-            // Show success screen with animation
-            showScreen('paymentSuccess');
-            
-            const successIcon = document.getElementById('successIcon');
-            successIcon.classList.add('success-animation');
-            
-            setTimeout(() => {
-                successIcon.classList.remove('success-animation');
-            }, 1500);
-        }
-
-        function downloadPopupPDF() {
-            if (!clickedTransaction) return;
-            
-            // Temporarily set lastTransaction to clicked one
-            const originalTransaction = lastTransaction;
-            lastTransaction = clickedTransaction;
-            
-            downloadPDFReceipt();
-            
-            // Restore original lastTransaction
-            lastTransaction = originalTransaction;
-        }
-
-        // --- LONG PRESS TRANSACTION OPTIONS ---
-
-        function showDeleteTransactionConfirmation(transactionKey) {
-            transactionToDelete = transactionKey;
-            
-            // Get the transaction data
-            database.ref('transactions/' + currentUser.uid + '/' + transactionKey).once('value').then(snapshot => {
+            database.ref('rewards').orderByChild('userId').equalTo(currentUser.uid).once('value').then(snapshot => {
+                rewardsList.innerHTML = '';
+                
                 if (!snapshot.exists()) {
-                    cancelDeleteTransaction();
+                    rewardsList.innerHTML = '<p class="text-gray-500 text-center py-4">No reward links created yet</p>';
                     return;
                 }
                 
-                const transaction = snapshot.val();
-                
-                // Create enhanced confirmation dialog
-                const confirmationDiv = document.createElement('div');
-                confirmationDiv.className = 'delete-confirmation';
-                confirmationDiv.id = 'deleteTransactionConfirmation';
-                
-                const isCredit = transaction.type === 'credit' || transaction.type === 'request';
-                const amountColor = isCredit ? 'text-green-600' : 'text-red-600';
-                const amountSign = isCredit ? '+' : '-';
-                
-                confirmationDiv.innerHTML = `
-                    <div class="delete-confirmation-content">
-                        <div class="mb-4">
-                            <h3 class="text-lg font-semibold text-gray-800 mb-3">Transaction Options</h3>
-                            
-                            <!-- Transaction Preview -->
-                            <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
-                                <div class="flex justify-between items-start">
-                                    <div>
-                                        <p class="font-medium text-sm">${transaction.from === currentUser.displayName ? 'To: ' + transaction.to : 'From: ' + transaction.from}</p>
-                                        <p class="text-xs text-gray-600 mt-1">${transaction.note || 'No description'}</p>
-                                    </div>
-                                    <div class="text-right">
-                                        <p class="font-bold text-lg ${amountColor}">${amountSign}₹${transaction.amount.toFixed(2)}</p>
-                                        <p class="text-xs text-gray-500 mt-1">${formatDate(transaction.timestamp).split(' ')[0]}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Action Buttons -->
-                        <div class="space-y-3">
-                            <button onclick="showTransactionDetailsFromPopup(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
-                                    class="w-full bg-blue-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-600 transition flex items-center justify-center">
-                                <i class="fas fa-info-circle mr-2"></i>
-                                View Transaction Details
-                            </button>
-                            
-                            <div class="pt-3 border-t border-gray-200">
-                                <p class="text-sm text-gray-600 mb-3 text-center">Want to remove this transaction?</p>
-                                <div class="flex space-x-3">
-                                    <button onclick="cancelDeleteTransaction()" 
-                                            class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
-                                        Cancel
-                                    </button>
-                                    <button onclick="deleteTransaction()" 
-                                            class="flex-1 bg-red-500 text-white py-2 rounded-lg font-medium hover:bg-red-600 transition flex items-center justify-center">
-                                        <i class="fas fa-trash mr-2"></i>
-                                        Delete
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-                
-                document.body.appendChild(confirmationDiv);
+                const rewards = snapshot.val();
+                Object.keys(rewards).reverse().forEach(rewardId => {
+                    const reward = rewards[rewardId];
+                    const rewardEl = createRewardElement(reward, rewardId);
+                    rewardsList.appendChild(rewardEl);
+                });
             }).catch(error => {
-                console.error('Error loading transaction:', error);
-                cancelDeleteTransaction();
+                console.error('Error loading rewards:', error);
+                rewardsList.innerHTML = '<p class="text-red-500 text-center py-4">Error loading rewards</p>';
             });
         }
 
-        // Helper function to show transaction details from popup
-        function showTransactionDetailsFromPopup(transaction) {
-            // Close the delete confirmation
-            cancelDeleteTransaction();
+        function createRewardElement(reward, rewardId) {
+            const baseUrl = window.location.origin + window.location.pathname;
+            const rewardLink = `${baseUrl}?rewardId=${rewardId}`;
             
-            // Set the clicked transaction
-            clickedTransaction = transaction;
+            // Determine status
+            let status = 'Active';
+            let statusClass = 'status-active';
             
-            // Show the transaction popup
-            showScreen('transactionPopup');
+            if (reward.status === 'completed') {
+                status = 'Completed';
+                statusClass = 'status-completed';
+            } else if (reward.ruleOption === 2) {
+                // Check if expired (24 hours)
+                const now = Date.now();
+                const createdTime = reward.createdAt;
+                const twentyFourHours = 24 * 60 * 60 * 1000;
+                
+                if (now - createdTime > twentyFourHours) {
+                    status = 'Expired';
+                    statusClass = 'status-expired';
+                }
+            }
             
-            // Update popup with transaction data
-            const isCredit = transaction.type === 'credit' || transaction.type === 'request';
-            document.getElementById('popupIcon').className = isCredit ? 
-                'w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4' : 
-                'w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4';
+            // Determine rule option text
+            const ruleText = reward.ruleOption === 1 ? 'Rule 1 (My Rules)' : 'Rule 2 (Strict Rules)';
+            const ruleClass = reward.ruleOption === 1 ? 'rule-badge-1' : 'rule-badge-2';
             
-            document.getElementById('popupIcon').innerHTML = isCredit ? 
-                '<i class="fas fa-arrow-down text-green-500 text-3xl"></i>' : 
-                '<i class="fas fa-arrow-up text-blue-500 text-3xl"></i>';
+            const div = document.createElement('div');
+            div.className = 'bg-white rounded-xl shadow-sm p-4 mb-4';
             
-            document.getElementById('popupType').textContent = isCredit ? 'Money Received' : 'Money Sent';
-            document.getElementById('popupFrom').textContent = transaction.from;
-            document.getElementById('popupTo').textContent = transaction.to;
-            document.getElementById('popupAmount').textContent = '₹' + transaction.amount.toFixed(2);
-            document.getElementById('popupAmount').className = isCredit ? 
-                'font-medium big-amount text-green-500' : 
-                'font-medium big-amount text-blue-500';
-            document.getElementById('popupNote').textContent = transaction.note || 'No note provided';
-            document.getElementById('popupDate').textContent = formatDate(transaction.timestamp);
-            document.getElementById('popupStatus').textContent = 'Successful';
-            document.getElementById('popupStatus').className = 'font-medium text-green-500 text-right';
-            document.getElementById('popupTransactionId').textContent = transaction.transactionId || 'TXN' + transaction.timestamp;
+            div.innerHTML = `
+                <div class="flex justify-between items-start mb-3">
+                    <div>
+                        <p class="font-medium text-lg">₹${reward.amount.toFixed(2)}</p>
+                        <p class="text-sm text-gray-600">${reward.description || 'Reward Payment'}</p>
+                    </div>
+                    <div class="flex flex-col items-end">
+                        <span class="status-badge ${statusClass}">${status}</span>
+                        <span class="rule-badge ${ruleClass} mt-1">${ruleText}</span>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <p class="text-xs text-gray-500 mb-1">Reward Link:</p>
+                    <div class="flex items-center bg-gray-50 p-2 rounded">
+                        <input type="text" id="rewardLink_${rewardId}" 
+                               value="${rewardLink}" 
+                               class="flex-1 bg-transparent outline-none text-xs truncate" 
+                               readonly>
+                        <button onclick="copyRewardLink('${rewardId}')" 
+                                class="ml-2 text-blue-500 text-sm font-medium">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="flex justify-between text-xs text-gray-500 mb-3">
+                    <span>Created: ${formatDate(reward.createdAt)}</span>
+                    <span>${reward.ruleOption === 2 ? 'Expires in 24h' : 'No expiry'}</span>
+                </div>
+                
+                <div class="flex space-x-2">
+                    <button onclick="deleteRewardLink('${rewardId}')" 
+                            class="flex-1 bg-red-500 text-white py-2 rounded-lg text-sm hover:bg-red-600 transition">
+                        <i class="fas fa-trash mr-1"></i>Delete
+                    </button>
+                </div>
+            `;
+            
+            return div;
+        }
+
+        function copyRewardLink(rewardId) {
+            const linkInput = document.getElementById(`rewardLink_${rewardId}`);
+            if (linkInput) {
+                copyTextToClipboard(linkInput.value);
+            }
+        }
+
+        function deleteRewardLink(rewardId) {
+            if (!confirm('Are you sure you want to delete this reward link? This action cannot be undone.')) {
+                return;
+            }
+            
+            database.ref('rewards/' + rewardId).remove()
+                .then(() => {
+                    alert('Reward link deleted successfully!');
+                    loadRewardLinks(); // Refresh the list
+                })
+                .catch(error => {
+                    console.error('Error deleting reward:', error);
+                    alert('Failed to delete reward link.');
+                });
         }
 
         // --- EXISTING APP FUNCTIONS ---
@@ -928,7 +980,7 @@
         function signUpUser() {
             const email = document.getElementById('signupEmail').value;
             const password = document.getElementById('signupPassword').value;
-            const displayName = document.getElementById('signupName').value;
+            const displayName = document.getElementById('signupName').value.trim();
             const inviteCode = document.getElementById('signupInviteCode').value;
             const pin = document.getElementById('signupPin').value;
             const confirmPin = document.getElementById('signupConfirmPin').value;
@@ -948,34 +1000,52 @@
                 return;
             }
             
-            auth.createUserWithEmailAndPassword(email, password)
-                .then(userCredential => {
-                    const user = userCredential.user;
-                    const accountNumber = generateAccountNumber();
-                    const expiryDate = '12/' + (new Date().getFullYear() + 5).toString().substr(2);
+            if (displayName.length < 2) {
+                alert('Name must be at least 2 characters long');
+                return;
+            }
+            
+            // Check if name already exists
+            checkNameAvailability(displayName)
+                .then(isAvailable => {
+                    if (!isAvailable) {
+                        alert('This name is already taken. Please choose a different name.');
+                        return;
+                    }
                     
-                    database.ref('users/' + user.uid).set({
-                        uid: user.uid,
-                        email: email,
-                        displayName: displayName,
-                        accountNumber: accountNumber,
-                        pin: pin,
-                        expiryDate: expiryDate,
-                        balance: 1000,
-                        profileIcon: appSettings.defaultProfileIcon,
-                        createdAt: Date.now()
-                    });
-                    
-                    database.ref('notifications/' + user.uid).push({
-                        title: 'Welcome to Fun Pay!',
-                        message: `Your account ${accountNumber} has been created with ₹1000 starting balance.`,
-                        timestamp: Date.now()
-                    });
-                    
-                    return user.updateProfile({ displayName: displayName });
+                    // Proceed with signup
+                    auth.createUserWithEmailAndPassword(email, password)
+                        .then(userCredential => {
+                            const user = userCredential.user;
+                            const accountNumber = generateAccountNumber();
+                            const expiryDate = '12/' + (new Date().getFullYear() + 5).toString().substr(2);
+                            
+                            database.ref('users/' + user.uid).set({
+                                uid: user.uid,
+                                email: email,
+                                displayName: displayName,
+                                accountNumber: accountNumber,
+                                pin: pin,
+                                expiryDate: expiryDate,
+                                balance: 1000,
+                                profileIcon: appSettings.defaultProfileIcon,
+                                createdAt: Date.now()
+                            });
+                            
+                            database.ref('notifications/' + user.uid).push({
+                                title: 'Welcome to Fun Pay!',
+                                message: `Your account ${accountNumber} has been created with ₹1000 starting balance.`,
+                                timestamp: Date.now()
+                            });
+                            
+                            return user.updateProfile({ displayName: displayName });
+                        })
+                        .catch(error => {
+                            alert(error.message);
+                        });
                 })
                 .catch(error => {
-                    alert(error.message);
+                    alert('Error checking name availability: ' + error.message);
                 });
         }
 
@@ -1305,6 +1375,26 @@
             return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         
+        function checkNameAvailability(name) {
+            return new Promise((resolve, reject) => {
+                database.ref('users').orderByChild('displayName').equalTo(name).once('value')
+                    .then(snapshot => {
+                        let isTaken = false;
+                        if (snapshot.exists()) {
+                            snapshot.forEach(childSnapshot => {
+                                if (!currentUser || childSnapshot.key !== currentUser.uid) {
+                                    isTaken = true;
+                                }
+                            });
+                        }
+                        resolve(!isTaken);
+                    })
+                    .catch(error => {
+                        reject(error);
+                    });
+            });
+        }
+        
         // QR Code Functions
         
         function generateQRCode() {
@@ -1451,31 +1541,49 @@
         }
         
         function changeProfileName() {
-            const newName = document.getElementById('newProfileName').value;
+            const newName = document.getElementById('newProfileName').value.trim();
             
             if (!newName || newName.trim() === '') {
                 alert('Please enter a valid name');
                 return;
             }
             
-            currentUser.updateProfile({ displayName: newName })
-                .then(() => {
-                    database.ref('users/' + currentUser.uid + '/displayName').set(newName)
+            if (newName.length < 2) {
+                alert('Name must be at least 2 characters long');
+                return;
+            }
+            
+            // Check if name already exists (excluding current user)
+            checkNameAvailability(newName)
+                .then(isAvailable => {
+                    if (!isAvailable) {
+                        alert('This name is already taken by another user. Please choose a different name.');
+                        return;
+                    }
+                    
+                    // Proceed with name change
+                    currentUser.updateProfile({ displayName: newName })
                         .then(() => {
-                            document.getElementById('userName').textContent = newName;
-                            document.getElementById('profileName').textContent = newName;
-                            document.getElementById('cardHolderName').textContent = newName.toUpperCase();
-                            
-                            document.getElementById('newProfileName').value = '';
-                            alert('Profile name updated successfully!');
-                            showScreen('profile');
+                            database.ref('users/' + currentUser.uid + '/displayName').set(newName)
+                                .then(() => {
+                                    document.getElementById('userName').textContent = newName;
+                                    document.getElementById('profileName').textContent = newName;
+                                    document.getElementById('cardHolderName').textContent = newName.toUpperCase();
+                                    
+                                    document.getElementById('newProfileName').value = '';
+                                    alert('Profile name updated successfully!');
+                                    showScreen('profile');
+                                })
+                                .catch(error => {
+                                    alert('Error updating profile: ' + error.message);
+                                });
                         })
                         .catch(error => {
                             alert('Error updating profile: ' + error.message);
                         });
                 })
                 .catch(error => {
-                    alert('Error updating profile: ' + error.message);
+                    alert('Error checking name availability: ' + error.message);
                 });
         }
         
@@ -1554,6 +1662,350 @@
                     transactionsList.innerHTML = '<p class="text-gray-500 text-center py-4">No transactions yet</p>';
                 }
             });
+        }
+
+        function showTransactionPopup(transaction) {
+            clickedTransaction = transaction;
+            
+            // Set popup data
+            const isCredit = transaction.type === 'credit' || transaction.type === 'request';
+            document.getElementById('popupIcon').className = isCredit ? 
+                'w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4' : 
+                'w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4';
+            
+            document.getElementById('popupIcon').innerHTML = isCredit ? 
+                '<i class="fas fa-arrow-down text-green-500 text-3xl"></i>' : 
+                '<i class="fas fa-arrow-up text-blue-500 text-3xl"></i>';
+            
+            document.getElementById('popupType').textContent = isCredit ? 'Money Received' : 'Money Sent';
+            document.getElementById('popupFrom').textContent = transaction.from;
+            document.getElementById('popupTo').textContent = transaction.to;
+            document.getElementById('popupAmount').textContent = '₹' + transaction.amount.toFixed(2);
+            document.getElementById('popupAmount').className = isCredit ? 
+                'font-medium big-amount text-green-500' : 
+                'font-medium big-amount text-blue-500';
+            document.getElementById('popupNote').textContent = transaction.note || 'No note provided';
+            document.getElementById('popupDate').textContent = formatDate(transaction.timestamp);
+            document.getElementById('popupStatus').textContent = 'Successful';
+            document.getElementById('popupStatus').className = 'font-medium text-green-500 text-right';
+            document.getElementById('popupTransactionId').textContent = transaction.transactionId || 'TXN' + transaction.timestamp;
+            
+            showScreen('transactionPopup');
+        }
+
+        function showDeleteTransactionConfirmation(transactionKey) {
+            transactionToDelete = transactionKey;
+            
+            // Get the transaction data
+            database.ref('transactions/' + currentUser.uid + '/' + transactionKey).once('value').then(snapshot => {
+                if (!snapshot.exists()) {
+                    cancelDeleteTransaction();
+                    return;
+                }
+                
+                const transaction = snapshot.val();
+                
+                // Create enhanced confirmation dialog
+                const confirmationDiv = document.createElement('div');
+                confirmationDiv.className = 'delete-confirmation';
+                confirmationDiv.id = 'deleteTransactionConfirmation';
+                
+                const isCredit = transaction.type === 'credit' || transaction.type === 'request';
+                const amountColor = isCredit ? 'text-green-600' : 'text-red-600';
+                const amountSign = isCredit ? '+' : '-';
+                
+                confirmationDiv.innerHTML = `
+                    <div class="delete-confirmation-content">
+                        <div class="mb-4">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-3">Transaction Options</h3>
+                            
+                            <!-- Transaction Preview -->
+                            <div class="bg-blue-50 border border-blue-100 rounded-lg p-3 mb-4">
+                                <div class="flex justify-between items-start">
+                                    <div>
+                                        <p class="font-medium text-sm">${transaction.from === currentUser.displayName ? 'To: ' + transaction.to : 'From: ' + transaction.from}</p>
+                                        <p class="text-xs text-gray-600 mt-1">${transaction.note || 'No description'}</p>
+                                    </div>
+                                    <div class="text-right">
+                                        <p class="font-bold text-lg ${amountColor}">${amountSign}₹${transaction.amount.toFixed(2)}</p>
+                                        <p class="text-xs text-gray-500 mt-1">${formatDate(transaction.timestamp).split(' ')[0]}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="space-y-3">
+                            <button onclick="showTransactionDetailsFromPopup(${JSON.stringify(transaction).replace(/"/g, '&quot;')})" 
+                                    class="w-full bg-blue-500 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-600 transition flex items-center justify-center">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                View Transaction Details
+                            </button>
+                            
+                            <div class="pt-3 border-t border-gray-200">
+                                <p class="text-sm text-gray-600 mb-3 text-center">Want to remove this transaction?</p>
+                                <div class="flex space-x-3">
+                                    <button onclick="cancelDeleteTransaction()" 
+                                            class="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
+                                        Cancel
+                                    </button>
+                                    <button onclick="deleteTransaction()" 
+                                            class="flex-1 bg-red-500 text-white py-2 rounded-lg font-medium hover:bg-red-600 transition flex items-center justify-center">
+                                        <i class="fas fa-trash mr-2"></i>
+                                        Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(confirmationDiv);
+            }).catch(error => {
+                console.error('Error loading transaction:', error);
+                cancelDeleteTransaction();
+            });
+        }
+
+        function showTransactionDetailsFromPopup(transaction) {
+            // Close the delete confirmation
+            cancelDeleteTransaction();
+            
+            // Set the clicked transaction
+            clickedTransaction = transaction;
+            
+            // Show the transaction popup
+            showScreen('transactionPopup');
+            
+            // Update popup with transaction data
+            const isCredit = transaction.type === 'credit' || transaction.type === 'request';
+            document.getElementById('popupIcon').className = isCredit ? 
+                'w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4' : 
+                'w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4';
+            
+            document.getElementById('popupIcon').innerHTML = isCredit ? 
+                '<i class="fas fa-arrow-down text-green-500 text-3xl"></i>' : 
+                '<i class="fas fa-arrow-up text-blue-500 text-3xl"></i>';
+            
+            document.getElementById('popupType').textContent = isCredit ? 'Money Received' : 'Money Sent';
+            document.getElementById('popupFrom').textContent = transaction.from;
+            document.getElementById('popupTo').textContent = transaction.to;
+            document.getElementById('popupAmount').textContent = '₹' + transaction.amount.toFixed(2);
+            document.getElementById('popupAmount').className = isCredit ? 
+                'font-medium big-amount text-green-500' : 
+                'font-medium big-amount text-blue-500';
+            document.getElementById('popupNote').textContent = transaction.note || 'No note provided';
+            document.getElementById('popupDate').textContent = formatDate(transaction.timestamp);
+            document.getElementById('popupStatus').textContent = 'Successful';
+            document.getElementById('popupStatus').className = 'font-medium text-green-500 text-right';
+            document.getElementById('popupTransactionId').textContent = transaction.transactionId || 'TXN' + transaction.timestamp;
+        }
+
+        function sharePopupTransaction() {
+            if (!clickedTransaction) return;
+            
+            const isCredit = clickedTransaction.type === 'credit' || clickedTransaction.type === 'request';
+            const transactionType = isCredit ? 'Received' : 'Sent';
+            
+            const shareText = `${transactionType} via Fun Pay!\n\n${isCredit ? 'From:' : 'To:'} ${isCredit ? clickedTransaction.from : clickedTransaction.to}\nAmount: ₹${clickedTransaction.amount.toFixed(2)}\nNote: ${clickedTransaction.note || 'Payment'}\nDate: ${formatDate(clickedTransaction.timestamp)}\nTransaction ID: ${clickedTransaction.transactionId || 'TXN' + clickedTransaction.timestamp}\nStatus: Successful\n\nThis is an educational transaction from Fun Pay - Educational Payment App`;
+            
+            if (navigator.share) {
+                navigator.share({
+                    title: `Fun Pay - ${transactionType}`,
+                    text: shareText
+                }).catch(err => console.log('Error sharing:', err));
+            } else {
+                navigator.clipboard.writeText(shareText).then(() => {
+                    alert('Transaction details copied to clipboard!');
+                }).catch(err => {
+                    console.error('Could not copy text: ', err);
+                    alert('Unable to share. Please try again.');
+                });
+            }
+        }
+
+        function showPopupAsPaymentSuccess() {
+            if (!clickedTransaction) return;
+            
+            // Set lastTransaction to the clicked one
+            lastTransaction = clickedTransaction;
+            
+            // Update success screen
+            document.getElementById('successRecipient').textContent = lastTransaction.to;
+            document.getElementById('successAmount').textContent = '₹' + lastTransaction.amount.toFixed(2);
+            document.getElementById('successNote').textContent = lastTransaction.note || 'Payment';
+            document.getElementById('successDate').textContent = formatDate(lastTransaction.timestamp);
+            document.getElementById('successTransactionId').textContent = lastTransaction.transactionId || 'TXN' + lastTransaction.timestamp;
+            
+            // Show success screen with animation
+            showScreen('paymentSuccess');
+            
+            const successIcon = document.getElementById('successIcon');
+            successIcon.classList.add('success-animation');
+            
+            setTimeout(() => {
+                successIcon.classList.remove('success-animation');
+            }, 1500);
+        }
+
+        function downloadPopupPDF() {
+            if (!clickedTransaction) return;
+            
+            // Temporarily set lastTransaction to clicked one
+            const originalTransaction = lastTransaction;
+            lastTransaction = clickedTransaction;
+            
+            downloadPDFReceipt();
+            
+            // Restore original lastTransaction
+            lastTransaction = originalTransaction;
+        }
+
+        function copyToClipboard(elementId) {
+            const textToCopy = document.getElementById(elementId).value;
+            copyTextToClipboard(textToCopy);
+        }
+        
+        function copyTextToClipboard(text) {
+            if (!navigator.clipboard) {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    alert('Copied to clipboard!');
+                } catch (err) {
+                    alert('Oops, unable to copy');
+                }
+                document.body.removeChild(textArea);
+                return;
+            }
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Copied to clipboard!');
+            }, (err) => {
+                console.error('Could not copy text: ', err);
+                alert('Oops, unable to copy');
+            });
+        }
+
+        // --- FIND PAYER FEATURE FUNCTIONS ---
+
+        function showFindPayerScreen() {
+            showScreen('findPayer');
+            document.getElementById('searchResults').innerHTML = '<p class="text-gray-500 text-center py-4">Search for a user by name</p>';
+            document.getElementById('searchNameInput').value = '';
+            document.getElementById('searchResultDetails').classList.add('hidden');
+        }
+
+        function searchUserByName() {
+            const searchName = document.getElementById('searchNameInput').value.trim().toLowerCase();
+            
+            if (!searchName) {
+                alert('Please enter a name to search');
+                return;
+            }
+            
+            if (searchName.length < 2) {
+                alert('Please enter at least 2 characters');
+                return;
+            }
+            
+            const searchResults = document.getElementById('searchResults');
+            searchResults.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin text-blue-500 text-xl"></i><p class="text-sm text-gray-500 mt-2">Searching...</p></div>';
+            
+            database.ref('users').once('value').then(snapshot => {
+                searchResults.innerHTML = '';
+                
+                if (!snapshot.exists()) {
+                    searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">No users found</p>';
+                    return;
+                }
+                
+                const users = snapshot.val();
+                let foundUsers = [];
+                
+                Object.keys(users).forEach(uid => {
+                    const user = users[uid];
+                    if (user.displayName && user.displayName.toLowerCase().includes(searchName)) {
+                        // Don't show current user
+                        if (uid !== currentUser.uid) {
+                            foundUsers.push({
+                                uid: uid,
+                                name: user.displayName,
+                                accountNumber: user.accountNumber
+                            });
+                        }
+                    }
+                });
+                
+                if (foundUsers.length === 0) {
+                    searchResults.innerHTML = '<p class="text-gray-500 text-center py-4">No users found with that name</p>';
+                    return;
+                }
+                
+                // Sort by name
+                foundUsers.sort((a, b) => a.name.localeCompare(b.name));
+                
+                foundUsers.forEach(user => {
+                    const userElement = document.createElement('div');
+                    userElement.className = 'p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer';
+                    userElement.onclick = () => {
+                        document.getElementById('selectedUserName').textContent = user.name;
+                        document.getElementById('selectedUserAccount').textContent = user.accountNumber;
+                        document.getElementById('searchResultDetails').classList.remove('hidden');
+                    };
+                    
+                    userElement.innerHTML = `
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <p class="font-medium">${user.name}</p>
+                                <p class="text-sm text-gray-500">Account Holder</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-mono">${user.accountNumber}</p>
+                                <p class="text-xs text-gray-500">Click to select</p>
+                            </div>
+                        </div>
+                    `;
+                    
+                    searchResults.appendChild(userElement);
+                });
+                
+                // Add a summary
+                const summary = document.createElement('div');
+                summary.className = 'p-3 bg-blue-50 rounded-lg mt-4';
+                summary.innerHTML = `
+                    <p class="text-sm text-blue-700">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Found ${foundUsers.length} user(s). Click on any user to view details.
+                    </p>
+                `;
+                searchResults.appendChild(summary);
+                
+            }).catch(error => {
+                console.error('Error searching users:', error);
+                searchResults.innerHTML = '<p class="text-red-500 text-center py-4">Error searching users</p>';
+            });
+        }
+
+        function copyAccountNumber() {
+            const accountNumber = document.getElementById('selectedUserAccount').textContent;
+            copyTextToClipboard(accountNumber);
+        }
+
+        function useForPayment() {
+            const accountNumber = document.getElementById('selectedUserAccount').textContent;
+            document.getElementById('recipient').value = accountNumber;
+            showScreen('send');
+        }
+
+        function useForRequest() {
+            const accountNumber = document.getElementById('selectedUserAccount').textContent;
+            document.getElementById('requestRecipient').value = accountNumber;
+            showScreen('request');
         }
     </script>
 
@@ -1767,13 +2219,20 @@
                     </button>
                 </div>
                 
-                <!-- NEW REWARD BUTTON -->
+                <!-- NEW REWARD AND FIND PAYER BUTTONS -->
                 <div class="grid grid-cols-4 gap-4 mt-4">
                     <button onclick="showScreen('requestReward')" class="flex flex-col items-center p-3 bg-white rounded-xl shadow-sm hover:shadow-md transition">
                         <div class="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mb-2">
                             <i class="fas fa-gift text-pink-500"></i>
                         </div>
                         <span class="text-xs text-gray-700">Reward</span>
+                    </button>
+                    
+                    <button onclick="showFindPayerScreen()" class="flex flex-col items-center p-3 bg-white rounded-xl shadow-sm hover:shadow-md transition">
+                        <div class="w-12 h-12 bg-teal-100 rounded-full flex items-center justify-center mb-2">
+                            <i class="fas fa-search text-teal-500"></i>
+                        </div>
+                        <span class="text-xs text-gray-700">Find Payer</span>
                     </button>
                 </div>
             </div>
@@ -1822,7 +2281,76 @@
         </div>
     </div>
 
-    <!-- NEW: Request Reward Screen -->
+    <!-- NEW: Find Payer Screen -->
+    <div id="findPayer" class="screen">
+        <div class="phone-container bg-white">
+            <!-- Header -->
+            <div class="bg-teal-500 text-white p-4 flex items-center">
+                <button onclick="showScreen('home')" class="mr-3">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-semibold">Find Payer</h2>
+            </div>
+            
+            <!-- Search Section -->
+            <div class="p-6">
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Search by Name</label>
+                    <div class="flex">
+                        <input type="text" id="searchNameInput" class="flex-1 px-4 py-3 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-teal-500" placeholder="Enter name to search">
+                        <button onclick="searchUserByName()" class="bg-teal-500 text-white px-4 rounded-r-lg hover:bg-teal-600 transition">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Search for users by their display name</p>
+                </div>
+                
+                <!-- Search Results -->
+                <div class="mb-6">
+                    <h3 class="text-sm font-medium text-gray-700 mb-2">Search Results</h3>
+                    <div id="searchResults" class="bg-gray-50 rounded-lg min-h-[200px] max-h-[300px] overflow-y-auto">
+                        <p class="text-gray-500 text-center py-4">Search for a user by name</p>
+                    </div>
+                </div>
+                
+                <!-- Selected User Details -->
+                <div id="searchResultDetails" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                    <h3 class="text-sm font-medium text-blue-800 mb-3">Selected User</h3>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Name:</span>
+                            <span class="font-medium" id="selectedUserName">-</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Account Number:</span>
+                            <span class="font-medium font-mono" id="selectedUserAccount">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-2 mt-4">
+                        <button onclick="copyAccountNumber()" class="flex-1 bg-blue-500 text-white py-2 rounded-lg text-sm hover:bg-blue-600 transition">
+                            <i class="fas fa-copy mr-1"></i>Copy Account
+                        </button>
+                        <button onclick="useForPayment()" class="flex-1 bg-teal-500 text-white py-2 rounded-lg text-sm hover:bg-teal-600 transition">
+                            <i class="fas fa-paper-plane mr-1"></i>Send Money
+                        </button>
+                        <button onclick="useForRequest()" class="flex-1 bg-green-500 text-white py-2 rounded-lg text-sm hover:bg-green-600 transition">
+                            <i class="fas fa-hand-holding-usd mr-1"></i>Request Money
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="p-3 bg-yellow-50 rounded-lg">
+                    <p class="text-xs text-yellow-700">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Each user has a unique display name. Names cannot be duplicated.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW: Request Reward Screen with Rule Selection -->
     <div id="requestReward" class="screen">
         <div class="phone-container bg-white">
             <!-- Header -->
@@ -1845,6 +2373,79 @@
                     <input type="text" id="rewardDescription" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500" placeholder="What's this reward for?">
                 </div>
                 
+                <!-- Rule Selection -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-3">Select Reward Rules</label>
+                    
+                    <!-- Rule Option 1 -->
+                    <div class="rule-option" data-rule-id="1">
+                        <div class="flex items-start">
+                            <div class="flex items-center h-5 mt-0.5">
+                                <input type="radio" name="ruleOption" class="w-4 h-4 text-pink-600" checked>
+                            </div>
+                            <div class="ml-3">
+                                <div class="flex items-center">
+                                    <span class="font-medium">Rule 1: My Rules</span>
+                                    <span class="rule-badge rule-badge-1 ml-2">Unlimited</span>
+                                </div>
+                                <ul class="text-xs text-gray-600 mt-2 space-y-1">
+                                    <li class="flex items-start">
+                                        <i class="fas fa-check text-green-500 mr-2 mt-0.5"></i>
+                                        <span>Unlimited claims by different users</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-check text-green-500 mr-2 mt-0.5"></i>
+                                        <span>No expiry - link works forever</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-times text-red-500 mr-2 mt-0.5"></i>
+                                        <span>Cannot claim your own rewards</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-infinity text-blue-500 mr-2 mt-0.5"></i>
+                                        <span>Link continues until deleted</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Rule Option 2 -->
+                    <div class="rule-option" data-rule-id="2">
+                        <div class="flex items-start">
+                            <div class="flex items-center h-5 mt-0.5">
+                                <input type="radio" name="ruleOption" class="w-4 h-4 text-pink-600">
+                            </div>
+                            <div class="ml-3">
+                                <div class="flex items-center">
+                                    <span class="font-medium">Rule 2: Strict Rules</span>
+                                    <span class="rule-badge rule-badge-2 ml-2">One-time</span>
+                                </div>
+                                <ul class="text-xs text-gray-600 mt-2 space-y-1">
+                                    <li class="flex items-start">
+                                        <i class="fas fa-check text-green-500 mr-2 mt-0.5"></i>
+                                        <span>One-time claim only</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-clock text-orange-500 mr-2 mt-0.5"></i>
+                                        <span>24-hour expiry from creation</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-times text-red-500 mr-2 mt-0.5"></i>
+                                        <span>Cannot claim your own rewards</span>
+                                    </li>
+                                    <li class="flex items-start">
+                                        <i class="fas fa-user-check text-blue-500 mr-2 mt-0.5"></i>
+                                        <span>Only one user can claim</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <input type="hidden" id="selectedRule" value="1">
+                </div>
+                
                 <button onclick="generateRewardLink()" class="w-full bg-pink-500 text-white py-3 rounded-lg font-medium hover:bg-pink-600 transition">
                     Generate Reward Link
                 </button>
@@ -1862,6 +2463,42 @@
                     <p class="text-xs text-yellow-700">
                         <i class="fas fa-info-circle mr-1"></i>
                         When someone clicks your reward link, they'll be asked to pay the specified amount to you.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NEW: Reward Link Checker Screen -->
+    <div id="rewardLinkChecker" class="screen">
+        <div class="phone-container bg-white">
+            <!-- Header -->
+            <div class="bg-indigo-500 text-white p-4 flex items-center">
+                <button onclick="showScreen('profile')" class="mr-3">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-semibold">Reward Link Checker</h2>
+            </div>
+            
+            <!-- Rewards List -->
+            <div class="p-6">
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-800">Your Reward Links</h3>
+                        <button onclick="loadRewardLinks()" class="text-indigo-500 text-sm hover:underline">
+                            <i class="fas fa-sync-alt mr-1"></i>Refresh
+                        </button>
+                    </div>
+                    
+                    <div id="rewardsList" class="max-h-[500px] overflow-y-auto">
+                        <p class="text-gray-500 text-center py-4">No reward links created yet</p>
+                    </div>
+                </div>
+                
+                <div class="p-3 bg-blue-50 rounded-lg">
+                    <p class="text-xs text-blue-700">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Manage all your reward links here. Click "Copy" to share a link or "Delete" to remove it permanently.
                     </p>
                 </div>
             </div>
@@ -1894,6 +2531,16 @@
                         <div class="flex justify-between mb-4">
                             <span class="text-gray-600">Reward Amount:</span>
                             <span id="rewardPaymentAmount" class="font-semibold text-lg text-pink-500">₹0.00</span>
+                        </div>
+                        
+                        <div class="flex justify-between mb-4">
+                            <span class="text-gray-600">Description:</span>
+                            <span id="rewardDescriptionText" class="font-medium text-right">Reward Payment</span>
+                        </div>
+                        
+                        <div class="flex justify-between">
+                            <span class="text-gray-600">Rule:</span>
+                            <span id="rewardRuleInfo" class="font-medium text-xs text-right">Rule 1 (Unlimited Claims)</span>
                         </div>
                     </div>
                 </div>
@@ -2290,6 +2937,26 @@
                                 <i class="fas fa-gift text-pink-500"></i>
                             </div>
                             <span class="font-medium">Request Reward</span>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-400"></i>
+                    </button>
+                    
+                    <button onclick="showRewardLinkChecker()" class="w-full p-4 flex items-center justify-between border-b border-gray-100">
+                        <div class="flex items-center">
+                            <div class="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center mr-3">
+                                <i class="fas fa-list-check text-indigo-500"></i>
+                            </div>
+                            <span class="font-medium">Reward Link Checker</span>
+                        </div>
+                        <i class="fas fa-chevron-right text-gray-400"></i>
+                    </button>
+                    
+                    <button onclick="showFindPayerScreen()" class="w-full p-4 flex items-center justify-between border-b border-gray-100">
+                        <div class="flex items-center">
+                            <div class="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center mr-3">
+                                <i class="fas fa-search text-teal-500"></i>
+                            </div>
+                            <span class="font-medium">Find Payer</span>
                         </div>
                         <i class="fas fa-chevron-right text-gray-400"></i>
                     </button>
@@ -2805,4 +3472,4 @@
         </div>
     </div>
 </body>
-</html>
+    </html>

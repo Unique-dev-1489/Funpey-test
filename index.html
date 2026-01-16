@@ -12,6 +12,8 @@
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <!-- Google Sign-In -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- jsQR for image QR decoding -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         .screen {
             display: none;
@@ -335,6 +337,23 @@
             background-color: #f9fafb;
             border-color: #d1d5db;
         }
+        /* QR Upload Button Styles */
+        .qr-upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 12px;
+            padding: 12px 24px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .qr-upload-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+        .qr-upload-btn:active {
+            transform: translateY(0);
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -570,6 +589,97 @@
                     document.getElementById('standardPinInput').value = '';
                 }
             });
+        }
+
+        // --- QR IMAGE UPLOAD FUNCTIONS ---
+        function processQRImage(event) {
+            const file = event.target.files[0];
+            
+            if (!file) {
+                return;
+            }
+            
+            if (!file.type.startsWith('image/')) {
+                alert('Please select an image file');
+                return;
+            }
+            
+            // Show loading
+            const uploadBtn = event.target.parentElement.querySelector('button');
+            const originalText = uploadBtn.innerHTML;
+            uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Scanning...';
+            uploadBtn.disabled = true;
+            
+            // Use html5-qrcode's file scanner
+            if (!html5QrcodeScanner) {
+                html5QrcodeScanner = new Html5Qrcode("qr-reader");
+            }
+            
+            html5QrcodeScanner.scanFile(file, true)
+                .then(decodedText => {
+                    // Successfully scanned
+                    handleScannedQRCode(decodedText);
+                    resetUploadButton(uploadBtn, originalText);
+                    // Clear the file input
+                    event.target.value = '';
+                })
+                .catch(err => {
+                    console.error("Error scanning image:", err);
+                    alert('No QR code found in the image. Please try another image or use camera scanning.');
+                    resetUploadButton(uploadBtn, originalText);
+                    // Clear the file input
+                    event.target.value = '';
+                });
+        }
+
+        function resetUploadButton(button, originalHTML) {
+            button.innerHTML = originalHTML;
+            button.disabled = false;
+        }
+
+        function handleScannedQRCode(decodedText) {
+            try {
+                const scannedData = JSON.parse(decodedText);
+                
+                // Check if it's a custom QR
+                if (scannedData.type === 'customQR') {
+                    // Redirect to custom QR payment
+                    window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${scannedData.qrId}`;
+                } else {
+                    // Regular user QR
+                    scannedUserData = scannedData;
+                    if (html5QrcodeScanner) {
+                        html5QrcodeScanner.stop();
+                    }
+                    showQRPaymentScreen(scannedData);
+                }
+            } catch (error) {
+                // Not JSON, try to handle as regular text
+                console.log('QR content:', decodedText);
+                
+                // Check if it's a URL with rewardId
+                if (decodedText.includes('rewardId=')) {
+                    const urlParams = new URLSearchParams(decodedText.split('?')[1]);
+                    const rewardId = urlParams.get('rewardId');
+                    if (rewardId) {
+                        window.location.href = `${window.location.origin}${window.location.pathname}?rewardId=${rewardId}`;
+                        return;
+                    }
+                }
+                
+                // Check if it's a URL with customQRId
+                if (decodedText.includes('customQRId=')) {
+                    const urlParams = new URLSearchParams(decodedText.split('?')[1]);
+                    const customQRId = urlParams.get('customQRId');
+                    if (customQRId) {
+                        window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${customQRId}`;
+                        return;
+                    }
+                }
+                
+                alert('QR Code scanned successfully!\n\nContent: ' + decodedText);
+                // You could add more handling here for different QR code formats
+            }
         }
 
         // --- CUSTOM QR FUNCTIONS ---
@@ -4279,7 +4389,7 @@
         </div>
     </div>
 
-    <!-- Scan QR Code Screen -->
+    <!-- Scan QR Code Screen (with image upload feature) -->
     <div id="scanQR" class="screen">
         <div class="phone-container bg-white">
             <!-- Header -->
@@ -4294,10 +4404,23 @@
             <div class="p-4">
                 <div id="qr-reader"></div>
                 
+                <!-- Image Upload Option -->
+                <div class="mt-6 flex justify-center">
+                    <div class="relative">
+                        <input type="file" id="qrImageUpload" accept="image/*" 
+                               class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                               onchange="processQRImage(event)">
+                        <button class="flex items-center bg-indigo-500 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-600 transition qr-upload-btn">
+                            <i class="fas fa-image mr-2"></i>
+                            Upload QR Image
+                        </button>
+                    </div>
+                </div>
+                
                 <div class="mt-4 p-3 bg-blue-50 rounded-lg">
                     <p class="text-xs text-blue-700 text-center">
                         <i class="fas fa-info-circle mr-1"></i>
-                        Position the QR code within the frame to scan
+                        Position the QR code within the frame to scan or upload an image from your device.
                     </p>
                 </div>
             </div>

@@ -9,10 +9,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <!-- QR Code Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://unpkg.com/html5-qrcode@2.4.2/html5-qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <!-- Google Sign-In -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- jsQR for image QR decoding -->
+    <!-- jsQR library for image QR scanning -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         .screen {
@@ -337,22 +337,27 @@
             background-color: #f9fafb;
             border-color: #d1d5db;
         }
-        /* QR Upload Button Styles */
-        .qr-upload-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border-radius: 12px;
-            padding: 12px 24px;
-            font-weight: 500;
-            transition: all 0.3s ease;
+        /* Image QR scanner styles */
+        .image-preview-container {
+            position: relative;
+            max-width: 300px;
+            margin: 0 auto;
+        }
+        .image-preview-container img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .qr-upload-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-        }
-        .qr-upload-btn:active {
-            transform: translateY(0);
+        .qr-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 2px dashed #3b82f6;
+            border-radius: 8px;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -419,6 +424,10 @@
         let pinVerificationCallback = null;
         let pinVerificationData = null;
 
+        // Image QR Scanner state
+        let selectedQRImage = null;
+        let imageScanResult = null;
+
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is logged in
@@ -461,6 +470,293 @@
             // Initialize rule selection
             initializeRuleSelection();
         });
+
+        // --- IMAGE QR SCANNER FUNCTIONS ---
+        function showImageQRScanner() {
+            showScreen('imageQRScanner');
+            resetImageScanner();
+        }
+
+        function handleImageSelection(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            // Check if it's an image
+            if (!file.type.match('image.*')) {
+                alert('Please select an image file (JPG, PNG, GIF, etc.)');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                selectedQRImage = e.target.result;
+                
+                // Show image preview
+                const preview = document.getElementById('selectedImage');
+                preview.src = selectedQRImage;
+                document.getElementById('imagePreview').classList.remove('hidden');
+                
+                // Enable scan button
+                document.getElementById('scanImageBtn').disabled = false;
+                
+                // Hide previous results
+                document.getElementById('scanResult').classList.add('hidden');
+                document.getElementById('scanError').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function scanImageForQR() {
+            if (!selectedQRImage) return;
+            
+            // Show loading state
+            const scanBtn = document.getElementById('scanImageBtn');
+            const originalText = scanBtn.innerHTML;
+            scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Scanning...';
+            scanBtn.disabled = true;
+            
+            // Create an image element
+            const img = new Image();
+            img.onload = function() {
+                // Create a canvas to draw the image
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                // Set canvas dimensions to match image
+                canvas.width = img.width;
+                canvas.height = img.height;
+                
+                // Draw image to canvas
+                ctx.drawImage(img, 0, 0, img.width, img.height);
+                
+                try {
+                    // Get image data
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    // Use jsQR to decode QR code
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: "dontInvert",
+                    });
+                    
+                    if (code) {
+                        processQRScanResult(code.data);
+                    } else {
+                        showScanError();
+                    }
+                } catch (error) {
+                    console.error('Error scanning image:', error);
+                    showScanError();
+                } finally {
+                    // Reset button state
+                    scanBtn.innerHTML = originalText;
+                    scanBtn.disabled = false;
+                }
+            };
+            img.onerror = function() {
+                alert('Error loading image. Please try another image.');
+                scanBtn.innerHTML = originalText;
+                scanBtn.disabled = false;
+            };
+            img.src = selectedQRImage;
+        }
+
+        function processQRScanResult(data) {
+            imageScanResult = data;
+            
+            // Display result
+            const resultText = document.getElementById('qrResultText');
+            const resultActions = document.getElementById('qrResultActions');
+            
+            try {
+                // Try to parse as JSON (for custom QR codes)
+                const parsedData = JSON.parse(data);
+                
+                if (parsedData.type === 'customQR') {
+                    // Custom QR payment
+                    resultText.innerHTML = `<strong>Custom QR Payment</strong><br>
+                                           Amount: <span class="font-semibold text-purple-600">₹${parsedData.amount}</span><br>
+                                           To: <span class="font-semibold">${parsedData.userName}</span><br>
+                                           Account: <span class="font-mono">${parsedData.userAccount}</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="processImageQRPayment('${encodeURIComponent(data)}')" 
+                                    class="bg-purple-500 text-white py-2 rounded-lg font-medium hover:bg-purple-600 transition">
+                                <i class="fas fa-qrcode mr-2"></i>Pay Now
+                            </button>
+                            <button onclick="copyQRData('${encodeURIComponent(data)}')" 
+                                    class="bg-blue-500 text-white py-2 rounded-lg font-medium hover:bg-blue-600 transition">
+                                <i class="fas fa-copy mr-2"></i>Copy Data
+                            </button>
+                        </div>
+                    `;
+                } else if (parsedData.uid && parsedData.accountNumber) {
+                    // Regular user QR
+                    resultText.innerHTML = `<strong>User QR Code</strong><br>
+                                           Account: <span class="font-mono font-semibold">${parsedData.accountNumber}</span><br>
+                                           Name: <span class="font-semibold">${parsedData.displayName}</span><br>
+                                           Bank: <span class="text-sm">${parsedData.bankName}</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="processImageQRUser('${encodeURIComponent(data)}')" 
+                                    class="bg-blue-500 text-white py-2 rounded-lg font-medium hover:bg-blue-600 transition">
+                                <i class="fas fa-user mr-2"></i>View User
+                            </button>
+                            <button onclick="copyQRData('${encodeURIComponent(data)}')" 
+                                    class="bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
+                                <i class="fas fa-copy mr-2"></i>Copy
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    // Unknown JSON format
+                    resultText.textContent = `QR Data: ${data.substring(0, 50)}${data.length > 50 ? '...' : ''}`;
+                    
+                    resultActions.innerHTML = `
+                        <button onclick="copyQRData('${encodeURIComponent(data)}')" 
+                                class="w-full bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
+                            <i class="fas fa-copy mr-2"></i>Copy Data
+                        </button>
+                    `;
+                }
+            } catch (e) {
+                // Not JSON, treat as plain text
+                if (data.includes('rewardId=')) {
+                    // Extract rewardId from URL
+                    const urlParams = new URLSearchParams(data.includes('?') ? data.split('?')[1] : data);
+                    const rewardId = urlParams.get('rewardId');
+                    
+                    resultText.innerHTML = `<strong>Reward Link Detected</strong><br>
+                                           <span class="text-sm text-gray-600">Click below to claim this reward</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <button onclick="openRewardLink('${rewardId || encodeURIComponent(data)}')" 
+                                class="w-full bg-pink-500 text-white py-2 rounded-lg font-medium hover:bg-pink-600 transition">
+                            <i class="fas fa-gift mr-2"></i>Claim Reward
+                        </button>
+                    `;
+                } else if (data.includes('customQRId=')) {
+                    // Extract customQRId from URL
+                    const urlParams = new URLSearchParams(data.includes('?') ? data.split('?')[1] : data);
+                    const customQRId = urlParams.get('customQRId');
+                    
+                    resultText.innerHTML = `<strong>Custom QR Payment Link</strong><br>
+                                           <span class="text-sm text-gray-600">Click below to process payment</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <button onclick="openCustomQRLink('${customQRId || encodeURIComponent(data)}')" 
+                                class="w-full bg-purple-500 text-white py-2 rounded-lg font-medium hover:bg-purple-600 transition">
+                            <i class="fas fa-qrcode mr-2"></i>Process Payment
+                        </button>
+                    `;
+                } else if (data.startsWith('http') || data.startsWith('https')) {
+                    // URL
+                    resultText.innerHTML = `<strong>URL Found</strong><br>
+                                           <span class="text-sm text-blue-600 break-all">${data}</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="window.open('${data}', '_blank')" 
+                                    class="bg-blue-500 text-white py-2 rounded-lg font-medium hover:bg-blue-600 transition">
+                                <i class="fas fa-external-link-alt mr-2"></i>Open URL
+                            </button>
+                            <button onclick="copyQRData('${encodeURIComponent(data)}')" 
+                                    class="bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">
+                                <i class="fas fa-copy mr-2"></i>Copy
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    // Plain text QR
+                    resultText.innerHTML = `<strong>Text Content</strong><br>
+                                           <span class="text-sm">${data.length > 100 ? data.substring(0, 100) + '...' : data}</span>`;
+                    
+                    resultActions.innerHTML = `
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="copyQRData('${encodeURIComponent(data)}')" 
+                                    class="bg-blue-500 text-white py-2 rounded-lg font-medium hover:bg-blue-600 transition">
+                                <i class="fas fa-copy mr-2"></i>Copy Text
+                            </button>
+                            <button onclick="shareQRData('${encodeURIComponent(data)}')" 
+                                    class="bg-green-500 text-white py-2 rounded-lg font-medium hover:bg-green-600 transition">
+                                <i class="fas fa-share mr-2"></i>Share
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+            
+            // Show result section
+            document.getElementById('scanResult').classList.remove('hidden');
+            document.getElementById('scanError').classList.add('hidden');
+        }
+
+        function processImageQRPayment(data) {
+            try {
+                const parsedData = JSON.parse(decodeURIComponent(data));
+                if (parsedData.type === 'customQR') {
+                    // Redirect to custom QR payment
+                    window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${parsedData.qrId}`;
+                }
+            } catch (e) {
+                alert('Invalid QR data');
+            }
+        }
+
+        function processImageQRUser(data) {
+            try {
+                const parsedData = JSON.parse(decodeURIComponent(data));
+                scannedUserData = parsedData;
+                showQRPaymentScreen(parsedData);
+            } catch (e) {
+                alert('Invalid user QR data');
+            }
+        }
+
+        function openRewardLink(rewardId) {
+            window.location.href = `${window.location.origin}${window.location.pathname}?rewardId=${rewardId}`;
+        }
+
+        function openCustomQRLink(customQRId) {
+            window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${customQRId}`;
+        }
+
+        function copyQRData(data) {
+            const decodedData = decodeURIComponent(data);
+            copyTextToClipboard(decodedData);
+        }
+
+        function shareQRData(data) {
+            const decodedData = decodeURIComponent(data);
+            if (navigator.share) {
+                navigator.share({
+                    title: 'QR Code Data',
+                    text: decodedData
+                }).catch(err => console.log('Error sharing:', err));
+            } else {
+                copyTextToClipboard(decodedData);
+            }
+        }
+
+        function showScanError() {
+            document.getElementById('scanResult').classList.add('hidden');
+            document.getElementById('scanError').classList.remove('hidden');
+        }
+
+        function resetImageScanner() {
+            selectedQRImage = null;
+            imageScanResult = null;
+            
+            // Reset UI
+            document.getElementById('imagePreview').classList.add('hidden');
+            document.getElementById('scanResult').classList.add('hidden');
+            document.getElementById('scanError').classList.add('hidden');
+            document.getElementById('scanImageBtn').disabled = true;
+            
+            // Reset file input
+            document.getElementById('qrImageInput').value = '';
+        }
 
         // --- GOOGLE SIGN-IN FUNCTIONS ---
         function signInWithGoogle() {
@@ -589,237 +885,6 @@
                     document.getElementById('standardPinInput').value = '';
                 }
             });
-        }
-
-        // --- OPTIMIZED QR IMAGE SCANNING ---
-function processQRImage(event) {
-    const file = event.target.files[0];
-    
-    if (!file) {
-        return;
-    }
-    
-    if (!file.type.startsWith('image/')) {
-        showQuickNotification('Please select an image file (JPG, PNG, etc.)', 'error');
-        return;
-    }
-    
-    // Show loading state
-    const uploadBtn = event.target.parentElement.querySelector('button');
-    const originalText = uploadBtn.innerHTML;
-    uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Processing...';
-    uploadBtn.disabled = true;
-    
-    // Start processing timer
-    const startTime = Date.now();
-    
-    // Create canvas for image preprocessing
-    const img = new Image();
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    
-    img.onload = function() {
-        // Step 1: Preprocess image for faster scanning
-        const processedImage = preprocessImageForQR(img, canvas, ctx);
-        
-        // Step 2: Try multiple scanning methods for best results
-        scanQRFromImage(processedImage, file)
-            .then(decodedText => {
-                const scanTime = Date.now() - startTime;
-                console.log(`QR scanned in ${scanTime}ms`);
-                
-                // Success - handle scanned QR code
-                handleScannedQRCode(decodedText);
-                resetUploadButton(uploadBtn, originalText);
-                event.target.value = ''; // Clear file input
-            })
-            .catch(error => {
-                const scanTime = Date.now() - startTime;
-                console.log(`QR scan failed in ${scanTime}ms:`, error);
-                
-                // Try alternative scanning method
-                tryAlternativeScanning(file)
-                    .then(decodedText => {
-                        handleScannedQRCode(decodedText);
-                        resetUploadButton(uploadBtn, originalText);
-                        event.target.value = '';
-                    })
-                    .catch(finalError => {
-                        console.error('All scanning methods failed:', finalError);
-                        showQuickNotification('No QR code found in the image. Try another image.', 'error');
-                        resetUploadButton(uploadBtn, originalText);
-                        event.target.value = '';
-                    });
-            });
-    };
-    
-    img.onerror = function() {
-        showQuickNotification('Error loading image. Please try another.', 'error');
-        resetUploadButton(uploadBtn, originalText);
-        event.target.value = '';
-    };
-    
-    // Load image
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        img.src = e.target.result;
-    };
-    reader.onerror = function() {
-        showQuickNotification('Error reading file', 'error');
-        resetUploadButton(uploadBtn, originalText);
-        event.target.value = '';
-    };
-    reader.readAsDataURL(file);
-}
-
-// Optimized image preprocessing for QR detection
-function preprocessImageForQR(img, canvas, ctx) {
-    // Set maximum dimensions for faster processing
-    const MAX_DIMENSION = 1024;
-    let width = img.width;
-    let height = img.height;
-    
-    // Scale down large images for faster processing
-    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-        const scale = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
-        width = Math.floor(width * scale);
-        height = Math.floor(height * scale);
-    }
-    
-    canvas.width = width;
-    canvas.height = height;
-    
-    // Draw image
-    ctx.drawImage(img, 0, 0, width, height);
-    
-    // Apply contrast enhancement for better QR detection
-    const imageData = ctx.getImageData(0, 0, width, height);
-    const data = imageData.data;
-    
-    // Fast contrast enhancement
-    for (let i = 0; i < data.length; i += 4) {
-        // Convert to grayscale and enhance contrast
-        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        
-        // Threshold for better QR detection
-        const threshold = 128;
-        const value = gray < threshold ? 0 : 255;
-        
-        data[i] = value;     // R
-        data[i + 1] = value; // G
-        data[i + 2] = value; // B
-        // Alpha stays the same
-    }
-    
-    ctx.putImageData(imageData, 0, 0);
-    
-    // Return processed image as data URL
-    return canvas.toDataURL('image/jpeg', 0.9);
-}
-
-// Fast QR scanning using multiple methods
-async function scanQRFromImage(processedImageUrl, originalFile) {
-    // Method 1: Use html5-qrcode with optimized settings
-    try {
-        const tempScanner = new Html5Qrcode("temp-scanner");
-        
-        // Convert data URL back to blob for scanning
-        const response = await fetch(processedImageUrl);
-        const blob = await response.blob();
-        const file = new File([blob], "processed-qr.jpg", { type: "image/jpeg" });
-        
-        const decodedText = await tempScanner.scanFile(file, true, {
-            fps: 10, // Lower FPS for images is fine
-            qrbox: { width: 400, height: 400 }
-        });
-        
-        return decodedText;
-    } catch (error) {
-        throw error; // Move to next method
-    }
-}
-
-// Alternative scanning method using jsQR
-async function tryAlternativeScanning(originalFile) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        
-        img.onload = function() {
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);
-            
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            
-            // Use jsQR library
-            const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                inversionAttempts: "dontInvert",
-            });
-            
-            if (code) {
-                resolve(code.data);
-            } else {
-                reject(new Error('No QR code found'));
-            }
-        };
-        
-        img.onerror = reject;
-        
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            img.src = e.target.result;
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(originalFile);
-    });
-}
-
-// Reset upload button
-function resetUploadButton(button, originalHTML) {
-    button.innerHTML = originalHTML;
-    button.disabled = false;
-}
-                // Check if it's a custom QR
-                if (scannedData.type === 'customQR') {
-                    // Redirect to custom QR payment
-                    window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${scannedData.qrId}`;
-                } else {
-                    // Regular user QR
-                    scannedUserData = scannedData;
-                    if (html5QrcodeScanner) {
-                        html5QrcodeScanner.stop();
-                    }
-                    showQRPaymentScreen(scannedData);
-                }
-            } catch (error) {
-                // Not JSON, try to handle as regular text
-                console.log('QR content:', decodedText);
-                
-                // Check if it's a URL with rewardId
-                if (decodedText.includes('rewardId=')) {
-                    const urlParams = new URLSearchParams(decodedText.split('?')[1]);
-                    const rewardId = urlParams.get('rewardId');
-                    if (rewardId) {
-                        window.location.href = `${window.location.origin}${window.location.pathname}?rewardId=${rewardId}`;
-                        return;
-                    }
-                }
-                
-                // Check if it's a URL with customQRId
-                if (decodedText.includes('customQRId=')) {
-                    const urlParams = new URLSearchParams(decodedText.split('?')[1]);
-                    const customQRId = urlParams.get('customQRId');
-                    if (customQRId) {
-                        window.location.href = `${window.location.origin}${window.location.pathname}?customQRId=${customQRId}`;
-                        return;
-                    }
-                }
-                
-                alert('QR Code scanned successfully!\n\nContent: ' + decodedText);
-                // You could add more handling here for different QR code formats
-            }
         }
 
         // --- CUSTOM QR FUNCTIONS ---
@@ -1039,7 +1104,7 @@ function resetUploadButton(button, originalHTML) {
             document.getElementById('customQRPaidNote').textContent = scannedCustomQRData.note;
             document.getElementById('customQRSuccessTransactionId').textContent = transactionId;
             
-            // FIX: Set the current date properly
+            // Set the current date properly
             const currentDate = new Date();
             document.getElementById('customQRPaymentDate').textContent = formatDate(currentDate.getTime());
             
@@ -3096,6 +3161,10 @@ function resetUploadButton(button, originalHTML) {
                     <button onclick="startQRScanner()" class="w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                         <i class="fas fa-qrcode text-white"></i>
                     </button>
+                    <!-- Image QR Scanner Button -->
+                    <button onclick="showImageQRScanner()" class="w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
+                        <i class="fas fa-image text-white"></i>
+                    </button>
                 </div>
                 
                 <div class="bg-white/20 backdrop-blur rounded-xl p-4">
@@ -3205,6 +3274,84 @@ function resetUploadButton(button, originalHTML) {
             </div>
         </div>
     </div>
+
+    <!-- Image QR Scanner Screen -->
+    <div id="imageQRScanner" class="screen">
+        <div class="phone-container bg-white">
+            <!-- Header -->
+            <div class="bg-indigo-500 text-white p-4 flex items-center">
+                <button onclick="showScreen('home')" class="mr-3">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-semibold">Scan QR from Image</h2>
+            </div>
+            
+            <!-- Image Scanner Content -->
+            <div class="p-6">
+                <div class="flex flex-col items-center justify-center py-8">
+                    <div class="w-32 h-32 bg-gray-100 rounded-lg flex items-center justify-center mb-4">
+                        <i class="fas fa-image text-gray-400 text-5xl"></i>
+                    </div>
+                    <p class="text-gray-600 mb-6 text-center">Select an image containing a QR code</p>
+                    
+                    <!-- Image Preview -->
+                    <div id="imagePreview" class="mb-6 w-full max-w-xs mx-auto hidden image-preview-container">
+                        <img id="selectedImage" class="w-full h-auto rounded-lg border border-gray-300">
+                        <div class="qr-overlay"></div>
+                    </div>
+                    
+                    <!-- Scan Result -->
+                    <div id="scanResult" class="mb-6 w-full hidden">
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <h3 class="font-semibold text-gray-800 mb-2">QR Code Found!</h3>
+                            <p id="qrResultText" class="text-sm text-gray-600 mb-3"></p>
+                            <div id="qrResultActions" class="mt-3"></div>
+                        </div>
+                    </div>
+                    
+                    <!-- Error Message -->
+                    <div id="scanError" class="mb-6 w-full hidden">
+                        <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+                            <h3 class="font-semibold text-red-800 mb-2">
+                                <i class="fas fa-exclamation-circle mr-2"></i>No QR Code Found
+                            </h3>
+                            <p class="text-sm text-red-600">The selected image doesn't contain a valid QR code. Please try another image.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="w-full space-y-3">
+                        <button onclick="document.getElementById('qrImageInput').click()" 
+                                class="w-full bg-indigo-500 text-white py-3 rounded-lg font-medium hover:bg-indigo-600 transition">
+                            <i class="fas fa-folder-open mr-2"></i>Choose Image
+                        </button>
+                        
+                        <button onclick="scanImageForQR()" 
+                                id="scanImageBtn"
+                                class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                disabled>
+                            <i class="fas fa-search mr-2"></i>Scan Image
+                        </button>
+                        
+                        <button onclick="resetImageScanner()" 
+                                class="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition">
+                            <i class="fas fa-redo mr-2"></i>Reset
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p class="text-xs text-blue-700">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Supported formats: JPG, PNG, GIF, BMP. The QR code should be clear and well-lit.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input for image QR scanning -->
+    <input type="file" id="qrImageInput" accept="image/*" style="display: none;" onchange="handleImageSelection(event)">
 
     <!-- NEW: Find Payer Screen -->
     <div id="findPayer" class="screen">
@@ -4529,7 +4676,7 @@ function resetUploadButton(button, originalHTML) {
         </div>
     </div>
 
-    <!-- Scan QR Code Screen (with image upload feature) -->
+    <!-- Scan QR Code Screen -->
     <div id="scanQR" class="screen">
         <div class="phone-container bg-white">
             <!-- Header -->
@@ -4544,23 +4691,10 @@ function resetUploadButton(button, originalHTML) {
             <div class="p-4">
                 <div id="qr-reader"></div>
                 
-                <!-- Image Upload Option -->
-                <div class="mt-6 flex justify-center">
-                    <div class="relative">
-                        <input type="file" id="qrImageUpload" accept="image/*" 
-                               class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-                               onchange="processQRImage(event)">
-                        <button class="flex items-center bg-indigo-500 text-white py-3 px-6 rounded-lg font-medium hover:bg-indigo-600 transition qr-upload-btn">
-                            <i class="fas fa-image mr-2"></i>
-                            Upload QR Image
-                        </button>
-                    </div>
-                </div>
-                
                 <div class="mt-4 p-3 bg-blue-50 rounded-lg">
                     <p class="text-xs text-blue-700 text-center">
                         <i class="fas fa-info-circle mr-1"></i>
-                        Position the QR code within the frame to scan or upload an image from your device.
+                        Position the QR code within the frame to scan
                     </p>
                 </div>
             </div>

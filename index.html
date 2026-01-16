@@ -591,56 +591,196 @@
             });
         }
 
-        // --- QR IMAGE UPLOAD FUNCTIONS ---
-        function processQRImage(event) {
-            const file = event.target.files[0];
-            
-            if (!file) {
-                return;
-            }
-            
-            if (!file.type.startsWith('image/')) {
-                alert('Please select an image file');
-                return;
-            }
-            
-            // Show loading
-            const uploadBtn = event.target.parentElement.querySelector('button');
-            const originalText = uploadBtn.innerHTML;
-            uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Scanning...';
-            uploadBtn.disabled = true;
-            
-            // Use html5-qrcode's file scanner
-            if (!html5QrcodeScanner) {
-                html5QrcodeScanner = new Html5Qrcode("qr-reader");
-            }
-            
-            html5QrcodeScanner.scanFile(file, true)
-                .then(decodedText => {
-                    // Successfully scanned
-                    handleScannedQRCode(decodedText);
-                    resetUploadButton(uploadBtn, originalText);
-                    // Clear the file input
-                    event.target.value = '';
-                })
-                .catch(err => {
-                    console.error("Error scanning image:", err);
-                    alert('No QR code found in the image. Please try another image or use camera scanning.');
-                    resetUploadButton(uploadBtn, originalText);
-                    // Clear the file input
-                    event.target.value = '';
-                });
-        }
-
-        function resetUploadButton(button, originalHTML) {
-            button.innerHTML = originalHTML;
-            button.disabled = false;
-        }
-
-        function handleScannedQRCode(decodedText) {
-            try {
-                const scannedData = JSON.parse(decodedText);
+        // --- OPTIMIZED QR IMAGE SCANNING ---
+function processQRImage(event) {
+    const file = event.target.files[0];
+    
+    if (!file) {
+        return;
+    }
+    
+    if (!file.type.startsWith('image/')) {
+        showQuickNotification('Please select an image file (JPG, PNG, etc.)', 'error');
+        return;
+    }
+    
+    // Show loading state
+    const uploadBtn = event.target.parentElement.querySelector('button');
+    const originalText = uploadBtn.innerHTML;
+    uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Processing...';
+    uploadBtn.disabled = true;
+    
+    // Start processing timer
+    const startTime = Date.now();
+    
+    // Create canvas for image preprocessing
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    img.onload = function() {
+        // Step 1: Preprocess image for faster scanning
+        const processedImage = preprocessImageForQR(img, canvas, ctx);
+        
+        // Step 2: Try multiple scanning methods for best results
+        scanQRFromImage(processedImage, file)
+            .then(decodedText => {
+                const scanTime = Date.now() - startTime;
+                console.log(`QR scanned in ${scanTime}ms`);
                 
+                // Success - handle scanned QR code
+                handleScannedQRCode(decodedText);
+                resetUploadButton(uploadBtn, originalText);
+                event.target.value = ''; // Clear file input
+            })
+            .catch(error => {
+                const scanTime = Date.now() - startTime;
+                console.log(`QR scan failed in ${scanTime}ms:`, error);
+                
+                // Try alternative scanning method
+                tryAlternativeScanning(file)
+                    .then(decodedText => {
+                        handleScannedQRCode(decodedText);
+                        resetUploadButton(uploadBtn, originalText);
+                        event.target.value = '';
+                    })
+                    .catch(finalError => {
+                        console.error('All scanning methods failed:', finalError);
+                        showQuickNotification('No QR code found in the image. Try another image.', 'error');
+                        resetUploadButton(uploadBtn, originalText);
+                        event.target.value = '';
+                    });
+            });
+    };
+    
+    img.onerror = function() {
+        showQuickNotification('Error loading image. Please try another.', 'error');
+        resetUploadButton(uploadBtn, originalText);
+        event.target.value = '';
+    };
+    
+    // Load image
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        img.src = e.target.result;
+    };
+    reader.onerror = function() {
+        showQuickNotification('Error reading file', 'error');
+        resetUploadButton(uploadBtn, originalText);
+        event.target.value = '';
+    };
+    reader.readAsDataURL(file);
+}
+
+// Optimized image preprocessing for QR detection
+function preprocessImageForQR(img, canvas, ctx) {
+    // Set maximum dimensions for faster processing
+    const MAX_DIMENSION = 1024;
+    let width = img.width;
+    let height = img.height;
+    
+    // Scale down large images for faster processing
+    if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        const scale = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height);
+        width = Math.floor(width * scale);
+        height = Math.floor(height * scale);
+    }
+    
+    canvas.width = width;
+    canvas.height = height;
+    
+    // Draw image
+    ctx.drawImage(img, 0, 0, width, height);
+    
+    // Apply contrast enhancement for better QR detection
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    
+    // Fast contrast enhancement
+    for (let i = 0; i < data.length; i += 4) {
+        // Convert to grayscale and enhance contrast
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        
+        // Threshold for better QR detection
+        const threshold = 128;
+        const value = gray < threshold ? 0 : 255;
+        
+        data[i] = value;     // R
+        data[i + 1] = value; // G
+        data[i + 2] = value; // B
+        // Alpha stays the same
+    }
+    
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Return processed image as data URL
+    return canvas.toDataURL('image/jpeg', 0.9);
+}
+
+// Fast QR scanning using multiple methods
+async function scanQRFromImage(processedImageUrl, originalFile) {
+    // Method 1: Use html5-qrcode with optimized settings
+    try {
+        const tempScanner = new Html5Qrcode("temp-scanner");
+        
+        // Convert data URL back to blob for scanning
+        const response = await fetch(processedImageUrl);
+        const blob = await response.blob();
+        const file = new File([blob], "processed-qr.jpg", { type: "image/jpeg" });
+        
+        const decodedText = await tempScanner.scanFile(file, true, {
+            fps: 10, // Lower FPS for images is fine
+            qrbox: { width: 400, height: 400 }
+        });
+        
+        return decodedText;
+    } catch (error) {
+        throw error; // Move to next method
+    }
+}
+
+// Alternative scanning method using jsQR
+async function tryAlternativeScanning(originalFile) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        img.onload = function() {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            
+            // Use jsQR library
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: "dontInvert",
+            });
+            
+            if (code) {
+                resolve(code.data);
+            } else {
+                reject(new Error('No QR code found'));
+            }
+        };
+        
+        img.onerror = reject;
+        
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            img.src = e.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(originalFile);
+    });
+}
+
+// Reset upload button
+function resetUploadButton(button, originalHTML) {
+    button.innerHTML = originalHTML;
+    button.disabled = false;
+}
                 // Check if it's a custom QR
                 if (scannedData.type === 'customQR') {
                     // Redirect to custom QR payment

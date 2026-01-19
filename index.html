@@ -134,10 +134,12 @@
             width: 100%;
             max-width: 480px;
             margin: 0 auto;
+            position: relative;
         }
         #qr-reader video {
             width: 100%;
             height: auto;
+            border-radius: 8px;
         }
         .qr-container {
             display: flex;
@@ -359,6 +361,137 @@
             border-radius: 8px;
             pointer-events: none;
         }
+        /* Toggle switch styles */
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 30px;
+        }
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .toggle-slider {
+            background-color: #8b5cf6;
+        }
+        input:checked + .toggle-slider:before {
+            transform: translateX(30px);
+        }
+        /* QR Scanner Controls */
+        .qr-scanner-controls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            z-index: 10;
+        }
+        .scanner-control-btn {
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .scanner-control-btn:hover {
+            background-color: rgba(0, 0, 0, 0.9);
+            transform: scale(1.1);
+        }
+        /* PDF Receipt Styles */
+        .receipt-preview {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            border: 1px solid #e5e7eb;
+        }
+        .receipt-header {
+            text-align: center;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .receipt-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .receipt-item {
+            padding: 8px 0;
+            border-bottom: 1px dashed #e5e7eb;
+        }
+        .receipt-footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 12px;
+            color: #6b7280;
+        }
+        .share-options {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .share-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            border-radius: 8px;
+            background-color: #f9fafb;
+            border: 1px solid #e5e7eb;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .share-btn:hover {
+            background-color: #f3f4f6;
+            transform: translateY(-2px);
+        }
+        .share-btn i {
+            font-size: 20px;
+            margin-bottom: 5px;
+        }
+        .share-btn.whatsapp { color: #25D366; }
+        .share-btn.email { color: #EA4335; }
+        .share-btn.sms { color: #34B7F1; }
+        .share-btn.copy { color: #6b7280; }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -1283,13 +1416,20 @@
             document.getElementById('rewardUserName').textContent = currentRewardData.userName;
             document.getElementById('rewardUserAccount').textContent = currentRewardData.userAccount;
             document.getElementById('rewardPaymentAmount').textContent = '₹' + currentRewardData.amount.toFixed(2);
-            const descEl = document.getElementById('rewardDescriptionText');
-            descEl.innerHTML = `
-                <div class="flex items-center justify-center text-gray-500 text-sm bg-gray-100 rounded-lg p-3">
-                    <i class="fas fa-lock mr-2 text-gray-400"></i>
-                    <span>Locked until payment</span>
-                </div>
-            `;
+            
+            // Check if description should be hidden
+            if (currentRewardData.hideDescription) {
+                const descEl = document.getElementById('rewardDescriptionText');
+                descEl.innerHTML = `
+                    <div class="flex items-center justify-center text-gray-500 text-sm bg-gray-100 rounded-lg p-3">
+                        <i class="fas fa-lock mr-2 text-gray-400"></i>
+                        <span>Locked until payment</span>
+                    </div>
+                `;
+            } else {
+                const descEl = document.getElementById('rewardDescriptionText');
+                descEl.innerHTML = currentRewardData.description || 'Reward Payment';
+            }
             
             // Show rule information
             const ruleInfo = currentRewardData.ruleOption === 1 ? 
@@ -1302,6 +1442,7 @@
         function generateRewardLink() {
             const amount = parseFloat(document.getElementById('rewardAmount').value);
             const description = document.getElementById('rewardDescription').value;
+            const hideDescription = document.getElementById('rewardHideDescription').checked;
             
             if (!amount || amount <= 0) {
                 alert('Please enter a valid amount.');
@@ -1326,6 +1467,7 @@
                     userAccount: userData.accountNumber,
                     amount: amount,
                     description: description || 'Reward Payment',
+                    hideDescription: hideDescription,
                     ruleOption: selectedRuleOption,
                     status: 'active',
                     createdAt: Date.now(),
@@ -1339,6 +1481,7 @@
                     // Reset form
                     document.getElementById('rewardAmount').value = '';
                     document.getElementById('rewardDescription').value = '';
+                    document.getElementById('rewardHideDescription').checked = false;
                     
                     // Show success message
                     alert('Reward link generated successfully!');
@@ -1506,6 +1649,7 @@
                     <div>
                         <p class="font-medium text-lg">₹${reward.amount.toFixed(2)}</p>
                         <p class="text-sm text-gray-600">${reward.description || 'Reward Payment'}</p>
+                        ${reward.hideDescription ? '<span class="text-xs text-gray-500">(Description hidden until payment)</span>' : ''}
                     </div>
                     <div class="flex flex-col items-end">
                         <span class="status-badge ${statusClass}">${status}</span>
@@ -2041,47 +2185,239 @@
             }
         }
 
-        function downloadPDFReceipt() {
-            if (!lastTransaction) return;
+        // Enhanced PDF Download Function
+        function downloadPDFReceipt(transaction = null) {
+            const transactionToUse = transaction || lastTransaction;
+            if (!transactionToUse) return;
             
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
             
-            doc.setFontSize(20);
-            doc.setTextColor(66, 133, 244);
+            // Set document properties
+            doc.setProperties({
+                title: `Fun Pay Receipt - ${transactionToUse.transactionId}`,
+                subject: 'Payment Receipt',
+                author: 'Fun Pay Educational Platform',
+                keywords: 'receipt, payment, fun pay, educational',
+                creator: 'Fun Pay'
+            });
+            
+            // Add background pattern
+            doc.setFillColor(245, 245, 245);
+            doc.rect(0, 0, 210, 297, 'F');
+            
+            // Add decorative header
+            doc.setFillColor(59, 130, 246);
+            doc.rect(0, 0, 210, 40, 'F');
+            
+            // Add logo and title
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(24);
+            doc.setFont('helvetica', 'bold');
             doc.text('Fun Pay', 105, 20, { align: 'center' });
             
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Educational Payment Platform', 105, 28, { align: 'center' });
+            
+            // Add receipt title
+            doc.setTextColor(30, 41, 59);
+            doc.setFontSize(18);
+            doc.setFont('helvetica', 'bold');
+            doc.text('PAYMENT RECEIPT', 105, 50, { align: 'center' });
+            
+            // Add decorative line
+            doc.setDrawColor(59, 130, 246);
+            doc.setLineWidth(0.5);
+            doc.line(20, 55, 190, 55);
+            
+            // Transaction details section
+            doc.setTextColor(30, 41, 59);
             doc.setFontSize(12);
-            doc.setTextColor(100);
-            doc.text('Educational Payment Platform', 105, 27, { align: 'center' });
+            doc.setFont('helvetica', 'bold');
+            doc.text('Transaction Details', 20, 65);
+            
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(71, 85, 105);
+            
+            const details = [
+                [`Transaction ID:`, transactionToUse.transactionId],
+                [`Date:`, formatDate(transactionToUse.timestamp)],
+                [`Status:`, 'Successful'],
+                [`Reference:`, transactionToUse.note || 'Payment']
+            ];
+            
+            let yPos = 75;
+            details.forEach(([label, value]) => {
+                doc.setFont('helvetica', 'bold');
+                doc.text(label, 20, yPos);
+                doc.setFont('helvetica', 'normal');
+                doc.text(value, 70, yPos);
+                yPos += 7;
+            });
+            
+            // Payment details section
+            yPos += 5;
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(30, 41, 59);
+            doc.text('Payment Information', 20, yPos);
+            
+            yPos += 10;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(71, 85, 105);
+            
+            const paymentDetails = [
+                [`From:`, transactionToUse.from],
+                [`Account:`, transactionToUse.senderAccountNumber || 'N/A'],
+                [`To:`, transactionToUse.to],
+                [`Account:`, transactionToUse.recipientAccountNumber || 'N/A']
+            ];
+            
+            paymentDetails.forEach(([label, value]) => {
+                doc.setFont('helvetica', 'bold');
+                doc.text(label, 20, yPos);
+                doc.setFont('helvetica', 'normal');
+                doc.text(value, 50, yPos);
+                yPos += 7;
+            });
+            
+            // Amount box
+            yPos += 10;
+            doc.setFillColor(236, 253, 245);
+            doc.roundedRect(20, yPos, 170, 25, 3, 3, 'F');
             
             doc.setFontSize(16);
-            doc.setTextColor(0);
-            doc.text('Payment Receipt', 105, 40, { align: 'center' });
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(22, 163, 74);
+            doc.text('Amount Paid:', 30, yPos + 10);
+            doc.text(`₹${transactionToUse.amount.toFixed(2)}`, 160, yPos + 10, { align: 'right' });
             
-            doc.setFontSize(12);
-            doc.text('Transaction Details', 20, 55);
-            
+            // Payment method
+            yPos += 35;
             doc.setFontSize(10);
-            doc.text(`Transaction ID: ${lastTransaction.transactionId}`, 20, 65);
-            doc.text(`Date: ${formatDate(lastTransaction.timestamp)}`, 20, 72);
-            doc.text(`Status: Successful`, 20, 79);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(71, 85, 105);
+            doc.text(`Payment Method: ${transactionToUse.paymentMethod || 'Account Transfer'}`, 20, yPos);
             
-            doc.setFontSize(12);
-            doc.text('Payment Details', 20, 95);
+            // QR Code for verification (if available)
+            yPos += 20;
+            try {
+                const qrData = JSON.stringify({
+                    transactionId: transactionToUse.transactionId,
+                    date: transactionToUse.timestamp,
+                    amount: transactionToUse.amount,
+                    from: transactionToUse.from,
+                    to: transactionToUse.to
+                });
+                
+                // Create a QR code element
+                const qrDiv = document.createElement('div');
+                document.body.appendChild(qrDiv);
+                
+                new QRCode(qrDiv, {
+                    text: qrData,
+                    width: 50,
+                    height: 50,
+                    colorDark: "#000000",
+                    colorLight: "#ffffff",
+                    correctLevel: QRCode.CorrectLevel.H
+                });
+                
+                // Convert QR to image and add to PDF
+                setTimeout(() => {
+                    const qrCanvas = qrDiv.querySelector('canvas');
+                    const qrImage = qrCanvas.toDataURL('image/png');
+                    
+                    doc.addImage(qrImage, 'PNG', 80, yPos, 50, 50);
+                    doc.setFontSize(8);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text('Scan to verify transaction', 105, yPos + 60, { align: 'center' });
+                    
+                    // Footer
+                    doc.setFontSize(8);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text('This is an educational receipt. No real money was involved.', 105, 280, { align: 'center' });
+                    doc.text('© 2023 Fun Pay - Educational Platform | funpay.edu', 105, 285, { align: 'center' });
+                    doc.text('Transaction verified and secured by Fun Pay', 105, 290, { align: 'center' });
+                    
+                    // Save the PDF
+                    doc.save(`FunPay_Receipt_${transactionToUse.transactionId}.pdf`);
+                    
+                    // Clean up
+                    document.body.removeChild(qrDiv);
+                }, 100);
+            } catch (error) {
+                console.error('Error generating QR for PDF:', error);
+                
+                // Footer without QR
+                doc.setFontSize(8);
+                doc.setTextColor(148, 163, 184);
+                doc.text('This is an educational receipt. No real money was involved.', 105, 280, { align: 'center' });
+                doc.text('© 2023 Fun Pay - Educational Platform | funpay.edu', 105, 285, { align: 'center' });
+                doc.text('Transaction verified and secured by Fun Pay', 105, 290, { align: 'center' });
+                
+                // Save the PDF
+                doc.save(`FunPay_Receipt_${transactionToUse.transactionId}.pdf`);
+            }
+        }
+
+        // New function to share PDF via different methods
+        function shareTransactionPDF(transaction = null) {
+            const transactionToUse = transaction || lastTransaction;
+            if (!transactionToUse) return;
             
-            doc.setFontSize(10);
-            doc.text(`From: ${lastTransaction.from}`, 20, 105);
-            doc.text(`To: ${lastTransaction.to}`, 20, 112);
-            doc.text(`Amount: ₹${lastTransaction.amount.toFixed(2)}`, 20, 119);
-            doc.text(`Note: ${lastTransaction.note || 'Payment'}`, 20, 126);
+            // Create a preview of the receipt
+            showScreen('pdfPreview');
             
-            doc.setFontSize(8);
-            doc.setTextColor(150);
-            doc.text('This is an educational receipt. No real money was involved.', 105, 280, { align: 'center' });
-            doc.text('© 2023 Fun Pay - Educational Platform', 105, 285, { align: 'center' });
+            // Update preview content
+            document.getElementById('pdfPreviewTransactionId').textContent = transactionToUse.transactionId;
+            document.getElementById('pdfPreviewDate').textContent = formatDate(transactionToUse.timestamp);
+            document.getElementById('pdfPreviewFrom').textContent = transactionToUse.from;
+            document.getElementById('pdfPreviewTo').textContent = transactionToUse.to;
+            document.getElementById('pdfPreviewAmount').textContent = '₹' + transactionToUse.amount.toFixed(2);
+            document.getElementById('pdfPreviewNote').textContent = transactionToUse.note || 'Payment';
+            document.getElementById('pdfPreviewMethod').textContent = transactionToUse.paymentMethod || 'Account Transfer';
             
-            doc.save(`FunPay_Receipt_${lastTransaction.transactionId}.pdf`);
+            // Store transaction for download
+            window.currentPDFTransaction = transactionToUse;
+        }
+
+        function downloadPreviewPDF() {
+            if (window.currentPDFTransaction) {
+                downloadPDFReceipt(window.currentPDFTransaction);
+            }
+        }
+
+        function shareViaWhatsApp() {
+            if (!lastTransaction) return;
+            
+            const message = `Payment Receipt\n\nTransaction ID: ${lastTransaction.transactionId}\nAmount: ₹${lastTransaction.amount.toFixed(2)}\nFrom: ${lastTransaction.from}\nTo: ${lastTransaction.to}\nDate: ${formatDate(lastTransaction.timestamp)}\nNote: ${lastTransaction.note || 'Payment'}\n\nShared via Fun Pay Educational App`;
+            
+            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+            window.open(whatsappUrl, '_blank');
+        }
+
+        function shareViaEmail() {
+            if (!lastTransaction) return;
+            
+            const subject = `Fun Pay Receipt - ${lastTransaction.transactionId}`;
+            const body = `Dear Recipient,\n\nPlease find the payment receipt details below:\n\nTransaction ID: ${lastTransaction.transactionId}\nAmount: ₹${lastTransaction.amount.toFixed(2)}\nFrom: ${lastTransaction.from}\nTo: ${lastTransaction.to}\nDate: ${formatDate(lastTransaction.timestamp)}\nNote: ${lastTransaction.note || 'Payment'}\nPayment Method: ${lastTransaction.paymentMethod || 'Account Transfer'}\n\nThis is an educational transaction from Fun Pay Educational Platform.\n\nBest regards,\nFun Pay Team`;
+            
+            const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            window.location.href = mailtoUrl;
+        }
+
+        function shareViaSMS() {
+            if (!lastTransaction) return;
+            
+            const message = `Fun Pay Receipt: ₹${lastTransaction.amount.toFixed(2)} paid to ${lastTransaction.to}. Transaction ID: ${lastTransaction.transactionId}. Date: ${formatDate(lastTransaction.timestamp)}. Educational purpose only.`;
+            
+            const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
+            window.location.href = smsUrl;
         }
 
         function requestMoney() {
@@ -2701,15 +3037,7 @@
 
         function downloadPopupPDF() {
             if (!clickedTransaction) return;
-            
-            // Temporarily set lastTransaction to clicked one
-            const originalTransaction = lastTransaction;
-            lastTransaction = clickedTransaction;
-            
-            downloadPDFReceipt();
-            
-            // Restore original lastTransaction
-            lastTransaction = originalTransaction;
+            shareTransactionPDF(clickedTransaction);
         }
 
         function copyToClipboard(elementId) {
@@ -3157,13 +3485,9 @@
                         <img id="homeProfileIcon" src="https://picsum.photos/seed/user/200/200.jpg" class="w-12 h-12 rounded-full border-2 border-white">
                         <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
                     </div>
-                    <!-- Scan QR Button -->
+                    <!-- Single QR Scanner Button -->
                     <button onclick="startQRScanner()" class="w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
                         <i class="fas fa-qrcode text-white"></i>
-                    </button>
-                    <!-- Image QR Scanner Button -->
-                    <button onclick="showImageQRScanner()" class="w-10 h-10 bg-white/20 backdrop-blur rounded-full flex items-center justify-center">
-                        <i class="fas fa-image text-white"></i>
                     </button>
                 </div>
                 
@@ -3353,6 +3677,97 @@
     <!-- Hidden file input for image QR scanning -->
     <input type="file" id="qrImageInput" accept="image/*" style="display: none;" onchange="handleImageSelection(event)">
 
+    <!-- PDF Preview Screen -->
+    <div id="pdfPreview" class="screen">
+        <div class="phone-container bg-white">
+            <!-- Header -->
+            <div class="bg-blue-500 text-white p-4 flex items-center">
+                <button onclick="showScreen('history')" class="mr-3">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-semibold">Receipt Preview</h2>
+            </div>
+            
+            <!-- Receipt Preview Content -->
+            <div class="p-6">
+                <div class="receipt-preview">
+                    <div class="receipt-header">
+                        <h3 class="text-xl font-bold text-blue-600">Fun Pay</h3>
+                        <p class="text-sm text-gray-600">Educational Payment Platform</p>
+                        <h4 class="text-lg font-semibold mt-2">PAYMENT RECEIPT</h4>
+                    </div>
+                    
+                    <div class="receipt-details">
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Transaction ID:</span>
+                            <span class="font-mono" id="pdfPreviewTransactionId">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Date:</span>
+                            <span id="pdfPreviewDate">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">From:</span>
+                            <span id="pdfPreviewFrom">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">To:</span>
+                            <span id="pdfPreviewTo">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Amount:</span>
+                            <span class="text-green-600 font-bold" id="pdfPreviewAmount">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Note:</span>
+                            <span id="pdfPreviewNote">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Method:</span>
+                            <span id="pdfPreviewMethod">-</span>
+                        </div>
+                        <div class="receipt-item">
+                            <span class="font-medium text-gray-600">Status:</span>
+                            <span class="text-green-600 font-medium">Successful</span>
+                        </div>
+                    </div>
+                    
+                    <div class="receipt-footer">
+                        <p>This is an educational receipt. No real money was involved.</p>
+                        <p class="mt-1">© 2023 Fun Pay - Educational Platform</p>
+                    </div>
+                </div>
+                
+                <!-- Share Options -->
+                <div class="share-options">
+                    <button onclick="downloadPreviewPDF()" class="share-btn copy">
+                        <i class="fas fa-download"></i>
+                        <span class="text-xs mt-1">PDF</span>
+                    </button>
+                    <button onclick="shareViaWhatsApp()" class="share-btn whatsapp">
+                        <i class="fab fa-whatsapp"></i>
+                        <span class="text-xs mt-1">WhatsApp</span>
+                    </button>
+                    <button onclick="shareViaEmail()" class="share-btn email">
+                        <i class="fas fa-envelope"></i>
+                        <span class="text-xs mt-1">Email</span>
+                    </button>
+                    <button onclick="shareViaSMS()" class="share-btn sms">
+                        <i class="fas fa-sms"></i>
+                        <span class="text-xs mt-1">SMS</span>
+                    </button>
+                </div>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p class="text-xs text-blue-700">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Click on any option to share or download your receipt in different formats.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- NEW: Find Payer Screen -->
     <div id="findPayer" class="screen">
         <div class="phone-container bg-white">
@@ -3443,6 +3858,20 @@
                 <div class="mb-6">
                     <label class="block text-sm font-medium text-gray-700 mb-2">Reward Description</label>
                     <input type="text" id="rewardDescription" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500" placeholder="What's this reward for?">
+                </div>
+                
+                <!-- Hide Description Toggle -->
+                <div class="mb-6">
+                    <label class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div>
+                            <span class="font-medium text-gray-700">Hide description until payment</span>
+                            <p class="text-xs text-gray-500">When enabled, description will show as "Locked until payment"</p>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="rewardHideDescription">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </label>
                 </div>
                 
                 <!-- Rule Selection -->
@@ -3941,18 +4370,60 @@
                 </div>
                 
                 <div class="w-full space-y-3">
-                    <button onclick="sharePopupTransaction()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
-                        <i class="fas fa-share-alt mr-2"></i>Share Details
+                    <button onclick="shareTransactionPDF(clickedTransaction)" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
+                        <i class="fas fa-share-alt mr-2"></i>Share Receipt
                     </button>
-                    <button onclick="downloadPopupPDF()" class="w-full bg-gray-200 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-300 transition">
-                        <i class="fas fa-download mr-2"></i>Download Receipt
+                    <button onclick="downloadPopupPDF()" class="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition">
+                        <i class="fas fa-download mr-2"></i>Download PDF
                     </button>
-                    <button onclick="showPopupAsPaymentSuccess()" class="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition">
+                    <button onclick="showPopupAsPaymentSuccess()" class="w-full bg-purple-500 text-white py-3 rounded-lg font-medium hover:bg-purple-600 transition">
                         <i class="fas fa-redo mr-2"></i>Show as Payment Success
                     </button>
                     <button onclick="showScreen('history')" class="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition">
                         Back to History
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scan QR Code Screen with Image Scan Option -->
+    <div id="scanQR" class="screen">
+        <div class="phone-container bg-white">
+            <!-- Header -->
+            <div class="bg-indigo-500 text-white p-4 flex items-center">
+                <button onclick="showScreen('home')" class="mr-3">
+                    <i class="fas fa-arrow-left"></i>
+                </button>
+                <h2 class="text-xl font-semibold">Scan QR Code</h2>
+                <!-- Image Scan Button in Header -->
+                <button onclick="showImageQRScanner()" class="ml-auto text-white">
+                    <i class="fas fa-image"></i>
+                </button>
+            </div>
+            
+            <!-- QR Scanner -->
+            <div class="p-4 relative">
+                <div id="qr-reader"></div>
+                
+                <!-- Scanner Controls -->
+                <div class="qr-scanner-controls">
+                    <button onclick="showImageQRScanner()" class="scanner-control-btn">
+                        <i class="fas fa-image"></i>
+                    </button>
+                    <button onclick="startQRScanner()" class="scanner-control-btn">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="showScreen('home')" class="scanner-control-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
+                    <p class="text-xs text-blue-700 text-center">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Position the QR code within the frame to scan or use the image icon to scan from a photo.
+                    </p>
                 </div>
             </div>
         </div>
@@ -4100,11 +4571,11 @@
                 </div>
                 
                 <div class="w-full space-y-3">
-                    <button onclick="shareTransaction()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
-                        <i class="fas fa-share-alt mr-2"></i>Share
+                    <button onclick="shareTransactionPDF()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
+                        <i class="fas fa-share-alt mr-2"></i>Share Receipt
                     </button>
-                    <button onclick="downloadPDFReceipt()" class="w-full bg-gray-200 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-300 transition">
-                        <i class="fas fa-download mr-2"></i>Download Receipt
+                    <button onclick="downloadPDFReceipt()" class="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition">
+                        <i class="fas fa-download mr-2"></i>Download PDF
                     </button>
                     <button onclick="showScreen('home')" class="w-full border border-gray-300 text-gray-700 py-3 rounded-lg font-medium hover:bg-gray-50 transition">
                         Done
@@ -4671,31 +5142,6 @@
                             Share this QR code to receive payments
                         </p>
                     </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Scan QR Code Screen -->
-    <div id="scanQR" class="screen">
-        <div class="phone-container bg-white">
-            <!-- Header -->
-            <div class="bg-indigo-500 text-white p-4 flex items-center">
-                <button onclick="showScreen('home')" class="mr-3">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
-                <h2 class="text-xl font-semibold">Scan QR Code</h2>
-            </div>
-            
-            <!-- QR Scanner -->
-            <div class="p-4">
-                <div id="qr-reader"></div>
-                
-                <div class="mt-4 p-3 bg-blue-50 rounded-lg">
-                    <p class="text-xs text-blue-700 text-center">
-                        <i class="fas fa-info-circle mr-1"></i>
-                        Position the QR code within the frame to scan
-                    </p>
                 </div>
             </div>
         </div>

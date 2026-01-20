@@ -2385,41 +2385,172 @@
             // Store transaction for download
             window.currentPDFTransaction = transactionToUse;
         }
+// Fix the sharing functions to use the correct transaction data
+function shareViaWhatsApp() {
+    const transaction = window.currentPDFTransaction || lastTransaction;
+    if (!transaction) {
+        alert('No transaction data available.');
+        return;
+    }
+    
+    try {
+        const message = `Payment Receipt\n\nTransaction ID: ${transaction.transactionId}\nAmount: ₹${transaction.amount.toFixed(2)}\nFrom: ${transaction.from}\nTo: ${transaction.to}\nDate: ${formatDate(transaction.timestamp)}\nNote: ${transaction.note || 'Payment'}\n\nShared via Fun Pay Educational App`;
+        
+        // Create a WhatsApp share URL
+        const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+        
+        // Open in new window
+        const newWindow = window.open(whatsappUrl, '_blank');
+        if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+            // If popup is blocked, show alternative
+            alert('WhatsApp sharing was blocked. You can manually copy the text and share it on WhatsApp.\n\n' + message);
+        }
+    } catch (error) {
+        console.error('Error sharing via WhatsApp:', error);
+        alert('Could not share via WhatsApp. Please try again.');
+    }
+}
 
-        function downloadPreviewPDF() {
-            if (window.currentPDFTransaction) {
-                downloadPDFReceipt(window.currentPDFTransaction);
+function shareViaEmail() {
+    const transaction = window.currentPDFTransaction || lastTransaction;
+    if (!transaction) {
+        alert('No transaction data available.');
+        return;
+    }
+    
+    try {
+        const subject = `Fun Pay Receipt - ${transaction.transactionId}`;
+        const body = `Dear Recipient,\n\nPlease find the payment receipt details below:\n\nTransaction ID: ${transaction.transactionId}\nAmount: ₹${transaction.amount.toFixed(2)}\nFrom: ${transaction.from}\nTo: ${transaction.to}\nDate: ${formatDate(transaction.timestamp)}\nNote: ${transaction.note || 'Payment'}\nPayment Method: ${transaction.paymentMethod || 'Account Transfer'}\n\nThis is an educational transaction from Fun Pay Educational Platform.\n\nBest regards,\nFun Pay Team`;
+        
+        // Create mailto link
+        const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+        
+        // Try to open email client
+        window.location.href = mailtoUrl;
+        
+        // Fallback: If mailto doesn't work after a delay, show copy option
+        setTimeout(() => {
+            if (confirm('Email client not opened. Would you like to copy the email content to clipboard instead?')) {
+                copyTextToClipboard(body);
             }
-        }
+        }, 1000);
+    } catch (error) {
+        console.error('Error sharing via email:', error);
+        alert('Could not share via email. Please try again.');
+    }
+}
 
-        function shareViaWhatsApp() {
-            if (!lastTransaction) return;
-            
-            const message = `Payment Receipt\n\nTransaction ID: ${lastTransaction.transactionId}\nAmount: ₹${lastTransaction.amount.toFixed(2)}\nFrom: ${lastTransaction.from}\nTo: ${lastTransaction.to}\nDate: ${formatDate(lastTransaction.timestamp)}\nNote: ${lastTransaction.note || 'Payment'}\n\nShared via Fun Pay Educational App`;
-            
-            const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-            window.open(whatsappUrl, '_blank');
-        }
+function shareViaSMS() {
+    const transaction = window.currentPDFTransaction || lastTransaction;
+    if (!transaction) {
+        alert('No transaction data available.');
+        return;
+    }
+    
+    try {
+        const message = `Fun Pay Receipt: ₹${transaction.amount.toFixed(2)} paid to ${transaction.to}. Transaction ID: ${transaction.transactionId}. Date: ${formatDate(transaction.timestamp)}. Educational purpose only.`;
+        
+        // Create SMS share URL
+        // Using the standard SMS URI scheme
+        const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
+        
+        // Try to open SMS app
+        window.location.href = smsUrl;
+        
+        // Fallback: If SMS doesn't work after a delay, show copy option
+        setTimeout(() => {
+            if (confirm('SMS app not opened. Would you like to copy the message to clipboard instead?')) {
+                copyTextToClipboard(message);
+            }
+        }, 1000);
+    } catch (error) {
+        console.error('Error sharing via SMS:', error);
+        alert('Could not share via SMS. Please try again.');
+    }
+}
 
-        function shareViaEmail() {
-            if (!lastTransaction) return;
-            
-            const subject = `Fun Pay Receipt - ${lastTransaction.transactionId}`;
-            const body = `Dear Recipient,\n\nPlease find the payment receipt details below:\n\nTransaction ID: ${lastTransaction.transactionId}\nAmount: ₹${lastTransaction.amount.toFixed(2)}\nFrom: ${lastTransaction.from}\nTo: ${lastTransaction.to}\nDate: ${formatDate(lastTransaction.timestamp)}\nNote: ${lastTransaction.note || 'Payment'}\nPayment Method: ${lastTransaction.paymentMethod || 'Account Transfer'}\n\nThis is an educational transaction from Fun Pay Educational Platform.\n\nBest regards,\nFun Pay Team`;
-            
-            const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-            window.location.href = mailtoUrl;
+// Enhanced copyTextToClipboard function with better error handling
+function copyTextToClipboard(text) {
+    if (!navigator.clipboard) {
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        try {
+            const successful = document.execCommand('copy');
+            document.body.removeChild(textArea);
+            if (successful) {
+                alert('Copied to clipboard!');
+            } else {
+                throw new Error('Copy command failed');
+            }
+        } catch (err) {
+            document.body.removeChild(textArea);
+            alert('Oops, unable to copy. Please try again.');
+            console.error('Copy error:', err);
         }
+        return;
+    }
+    
+    // Modern clipboard API
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Copied to clipboard!');
+    }, (err) => {
+        console.error('Could not copy text: ', err);
+        alert('Oops, unable to copy. Please try again.');
+    });
+}
 
-        function shareViaSMS() {
-            if (!lastTransaction) return;
-            
-            const message = `Fun Pay Receipt: ₹${lastTransaction.amount.toFixed(2)} paid to ${lastTransaction.to}. Transaction ID: ${lastTransaction.transactionId}. Date: ${formatDate(lastTransaction.timestamp)}. Educational purpose only.`;
-            
-            const smsUrl = `sms:?body=${encodeURIComponent(message)}`;
-            window.location.href = smsUrl;
-        }
+// Update the shareTransactionPDF function to ensure currentPDFTransaction is set
+function shareTransactionPDF(transaction = null) {
+    const transactionToUse = transaction || lastTransaction;
+    if (!transactionToUse) {
+        alert('No transaction data available.');
+        return;
+    }
+    
+    // Create a preview of the receipt
+    showScreen('pdfPreview');
+    
+    // Update preview content
+    document.getElementById('pdfPreviewTransactionId').textContent = transactionToUse.transactionId;
+    document.getElementById('pdfPreviewDate').textContent = formatDate(transactionToUse.timestamp);
+    document.getElementById('pdfPreviewFrom').textContent = transactionToUse.from;
+    document.getElementById('pdfPreviewTo').textContent = transactionToUse.to;
+    document.getElementById('pdfPreviewAmount').textContent = '₹' + transactionToUse.amount.toFixed(2);
+    document.getElementById('pdfPreviewNote').textContent = transactionToUse.note || 'Payment';
+    document.getElementById('pdfPreviewMethod').textContent = transactionToUse.paymentMethod || 'Account Transfer';
+    
+    // Store transaction for download
+    window.currentPDFTransaction = transactionToUse;
+}
 
+// Update the downloadPreviewPDF function to use the stored transaction
+function downloadPreviewPDF() {
+    if (window.currentPDFTransaction) {
+        downloadPDFReceipt(window.currentPDFTransaction);
+    } else {
+        alert('No transaction data available for download.');
+    }
+}
+
+// Also update the buttons in the payment success screen to use the new sharing function
+// Replace the existing shareTransaction function call in paymentSuccess screen with shareTransactionPDF()
+
+// In the paymentSuccess screen HTML, change the "Share" button from:
+// onclick="shareTransaction()" 
+// to:
+// onclick="shareTransactionPDF()"
+
+// And in the transactionPopup screen, change the "Share Receipt" button from:
+// onclick="shareTransactionPDF(clickedTransaction)"
+// to:
+// onclick="shareTransactionPDF(clickedTransaction)"
         function requestMoney() {
             const recipient = document.getElementById('requestRecipient').value;
             const amount = parseFloat(document.getElementById('requestAmount').value);
@@ -4370,9 +4501,10 @@
                 </div>
                 
                 <div class="w-full space-y-3">
-                    <button onclick="shareTransactionPDF(clickedTransaction)" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
-                        <i class="fas fa-share-alt mr-2"></i>Share Receipt
-                    </button>
+           <!-- Replace the old share button with this -->
+<button onclick="shareTransactionPDF()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
+    <i class="fas fa-share-alt mr-2"></i>Share Receipt
+</button>
                     <button onclick="downloadPopupPDF()" class="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition">
                         <i class="fas fa-download mr-2"></i>Download PDF
                     </button>
@@ -4571,9 +4703,10 @@
                 </div>
                 
                 <div class="w-full space-y-3">
-                    <button onclick="shareTransactionPDF()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
-                        <i class="fas fa-share-alt mr-2"></i>Share Receipt
-                    </button>
+                   <!-- Replace the old share button with this -->
+<button onclick="shareTransactionPDF()" class="w-full bg-blue-500 text-white py-3 rounded-lg font-medium hover:bg-blue-600 transition">
+    <i class="fas fa-share-alt mr-2"></i>Share Receipt
+</button>
                     <button onclick="downloadPDFReceipt()" class="w-full bg-green-500 text-white py-3 rounded-lg font-medium hover:bg-green-600 transition">
                         <i class="fas fa-download mr-2"></i>Download PDF
                     </button>
